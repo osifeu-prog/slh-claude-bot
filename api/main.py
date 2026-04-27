@@ -145,6 +145,8 @@ from routes.admin_rotate import (
     init_admin_secrets_table as _init_admin_rotate,
     check_db_admin_key as _check_db_admin_key,
 )
+# Command Brain — Decision Layer (system_state + recommended_actions)
+from routes.brain import router as brain_router, set_pool as _brain_set_pool
 from wellness_scheduler import init_wellness_scheduler, get_wellness_scheduler
 
 # === CONFIG ===
@@ -336,6 +338,7 @@ app.include_router(campaign_admin_router)
 app.include_router(academia_ugc_router)
 app.include_router(bot_registry_router)
 app.include_router(admin_rotate_router)
+app.include_router(brain_router)
 app.include_router(rotation_pipeline_router)
 app.include_router(ambassador_crm_router)
 app.include_router(therapists_router)
@@ -414,7 +417,8 @@ async def startup():
                        _bot_registry_set_pool, _admin_rotate_set_pool,
                        _ambassador_crm_set_pool, _therapists_set_pool, _tasks_set_pool,
                        _device_inventory_set_pool, _system_status_set_pool,
-                       _investor_engine_set_pool, _courses_set_pool, _esp_events_set_pool):
+                       _investor_engine_set_pool, _courses_set_pool, _esp_events_set_pool,
+                       _brain_set_pool):
             try:
                 setter(pool)
             except Exception as e:
