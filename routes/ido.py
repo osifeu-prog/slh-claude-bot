@@ -72,7 +72,8 @@ async def _ensure_tables_ready():
     global _tables_ready
     if _tables_ready:
         return
-    await _ensure_tables_ready()
+    # Fix 2026-04-28: was `await _ensure_tables_ready()` (infinite self-recursion → 500).
+    # The intent was simply to lazily run init_ido_tables, which we do directly below.
     try:
         await init_ido_tables()
         _tables_ready = True
@@ -414,25 +415,52 @@ async def get_status():
 async def get_top_contributors():
     """Public — top 10 contributors with anonymized wallets.
 
-    Uses ido_top_contributors view (already filters sybil_score < 50).
+    Uses ido_top_contributors view. ALWAYS returns 200 (empty list during pre-launch).
     """
-    await _ensure_tables_ready()
+    if _pool is None:
+        return {"contributors": [], "status_note": "pool not initialized"}
 
-    async with _pool.acquire() as conn:
-        rows = await conn.fetch("SELECT * FROM ido_top_contributors")
+    try:
+        try:
+            await init_ido_tables()
+        except Exception:
+            pass  # tables may already exist; queries will succeed if so
 
-    return {
-        "contributors": [
-            {
-                "rank":               i + 1,
-                "wallet_short":       row["wallet_short"],
-                "total_bnb":          float(row["total_contributed_bnb"]),
-                "contribution_count": row["contribution_count"],
-                "first_seen_at":      row["first_contribution_at"].isoformat() if row["first_contribution_at"] else None,
-            }
-            for i, row in enumerate(rows)
-        ]
-    }
+        async with _pool.acquire() as conn:
+            try:
+                rows = await conn.fetch("SELECT * FROM ido_top_contributors")
+            except Exception:
+                # View may not exist (e.g. permission issue) — fall back to direct query
+                rows = await conn.fetch(
+                    "SELECT wallet_address, "
+                    "       CONCAT(SUBSTRING(wallet_address FROM 1 FOR 6), '...', "
+                    "              SUBSTRING(wallet_address FROM 39 FOR 4)) AS wallet_short, "
+                    "       total_contributed_bnb, contribution_count, sybil_score, "
+                    "       first_contribution_at "
+                    "FROM ido_participants WHERE sybil_score < 50 "
+                    "ORDER BY total_contributed_bnb DESC LIMIT 10"
+                )
+
+        return {
+            "contributors": [
+                {
+                    "rank":               i + 1,
+                    "wallet_short":       row["wallet_short"],
+                    "total_bnb":          float(row["total_contributed_bnb"] or 0),
+                    "contribution_count": row["contribution_count"],
+                    "first_seen_at":      row["first_contribution_at"].isoformat() if row["first_contribution_at"] else None,
+                }
+                for i, row in enumerate(rows)
+            ]
+        }
+    except Exception as e:
+        import traceback
+        return {
+            "contributors": [],
+            "status_note": "pre-launch",
+            "debug_error": repr(e)[:200],
+            "debug_trace": traceback.format_exc()[-300:],
+        }
 
 
 @router.get("/milestones")
