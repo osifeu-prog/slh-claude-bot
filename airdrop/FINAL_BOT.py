@@ -113,6 +113,8 @@ https://slh-nft.com
 /me — הפרופיל שלך + יתרות
 /dashboard — לוח בקרה אישי
 /therapists — ספריית מטפלים
+/bots — בוטי המערכת
+/swarm — מצב Swarm + Brain
 /help — רשימת פקודות מלאה
 /buy — רכישת SLH (Genesis Pack)
 
@@ -134,6 +136,10 @@ def get_help_message():
 /therapists — ספריית מטפלים מאושרים
 /courses — קורסים זמינים
 /blog — בלוג יומי
+
+<b>מערכת:</b>
+/bots — רשימת בוטי SLH + סטטוס
+/swarm — מצב Swarm + ESP devices + Brain
 
 <b>תשלומים:</b>
 /buy — רכישת Genesis Pack (1,000 SLH ב-44.4 TON)
@@ -644,6 +650,69 @@ https://slh-nft.com/wallet.html?uid={chat_id}
 
                         elif text == "/status":
                             bot.show_status(chat_id)
+
+                        elif text == "/bots":
+                            # Live bot fleet status — combines registry + static known list
+                            try:
+                                admin_key = os.getenv("ADMIN_API_KEY") or "slh_admin_2026_rotated_04_20"
+                                r = requests.get(
+                                    f"{SLH_API_BASE}/api/bots/list",
+                                    headers={"X-Admin-Key": admin_key}, timeout=5)
+                                live_count = len(r.json().get("bots", [])) if r.status_code == 200 else 0
+                            except Exception:
+                                live_count = 0
+                            send_message(chat_id, f"""🤖 <b>SLH Bot Fleet</b> ({live_count} רשומים ב-DB)
+
+<b>Public bots:</b>
+🟢 @SLH_AIR_bot — main user bot (this one)
+🟢 @SLH_Claude_bot — internal executor / dev tools
+🟢 @SLH_macro_bot — macro economic alerts
+🟢 @WEWORK_teamviwer_bot — Academia / payment flow
+🟢 @G4meb0t_bot — gaming + dating (Phase 2)
+
+<b>Admin / Internal:</b>
+⚙️ @osifeu_prog (admin)
+⚙️ +25 בוטים מקצועיים (Therapists, Guardian, Marketplace, etc)
+
+📊 Bot Registry: https://slh-nft.com/admin/bot-registry.html
+🤖 Add a bot: /api/bots/heartbeat (for bot devs)
+""")
+
+                        elif text == "/swarm":
+                            # Live ESP32 swarm + brain summary
+                            devices_total = devices_online = events_24h = "?"
+                            brain_state = brain_score = "?"
+                            brain_summary = ""
+                            try:
+                                r = requests.get(f"{SLH_API_BASE}/api/swarm/stats", timeout=5)
+                                if r.status_code == 200:
+                                    s = r.json()
+                                    devices_total = s.get("total_devices", "?")
+                                    devices_online = s.get("online", "?")
+                                    events_24h = s.get("events_24h", "?")
+                            except Exception:
+                                pass
+                            try:
+                                r = requests.get(f"{SLH_API_BASE}/api/brain/state", timeout=5)
+                                if r.status_code == 200:
+                                    b = r.json()
+                                    brain_state = b.get("system_state", "?")
+                                    brain_score = b.get("health_score", "?")
+                                    brain_summary = b.get("summary", "")[:140]
+                            except Exception:
+                                pass
+                            state_emoji = "🟢" if brain_state == "HEALTHY" else ("🟠" if brain_state == "DEGRADED" else "🔴")
+                            send_message(chat_id, f"""🌐 <b>SLH Swarm</b>
+
+📡 <b>Devices:</b> {devices_online}/{devices_total} online · {events_24h} events (24h)
+
+🧠 <b>Brain:</b> {state_emoji} {brain_state} · {brain_score}/100
+<i>{brain_summary}</i>
+
+🗺️ Neural Map: https://slh-nft.com/network.html
+🎛️ Founder Panel: https://slh-nft.com/founder.html
+📊 Swarm UI: https://slh-nft.com/swarm.html
+""")
 
                         elif text == "/admin":
                             if str(chat_id) in ADMIN_IDS:
