@@ -335,11 +335,23 @@ async def get_status():
     """Public — soft/hard cap progress, ends_at, contributor count.
 
     Polled by /ido.html every 30s. Safe for public eyes — only aggregates.
+    Robust to: tables not yet created, jsonb returned as string, empty results.
     """
-    await _ensure_tables_ready()
+    import json
+    try:
+        await _ensure_tables_ready()
+    except HTTPException:
+        # Tables genuinely not ready — return minimal pre-launch stub
+        return {
+            "total_raised_bnb": 0.0, "soft_cap_bnb": SOFT_CAP_BNB,
+            "hard_cap_bnb": HARD_CAP_BNB, "soft_cap_pct": 0.0, "hard_cap_pct": 0.0,
+            "soft_cap_met": False, "hard_cap_met": False,
+            "unique_participants": 0, "confirmed_tx_count": 0,
+            "milestones": {}, "as_of": datetime.now(timezone.utc).isoformat(),
+            "status_note": "tables not yet initialized",
+        }
 
     async with _pool.acquire() as conn:
-        # Sum of confirmed contributions
         total_row = await conn.fetchrow("""
             SELECT
                 COALESCE(SUM(amount_bnb), 0) AS total_bnb,
@@ -349,22 +361,33 @@ async def get_status():
             WHERE status = 'confirmed'
         """)
 
-        # Milestone timestamps (for "soft cap met at" / "ends at")
         milestones = await conn.fetch("""
             SELECT milestone_type, reached_at, details
             FROM ido_milestones
             WHERE milestone_type IN
                 ('soft_cap_reached', 'hard_cap_reached', 'ido_started', 'ido_ended')
         """)
-        ms_map = {
-            m["milestone_type"]: {
-                "reached_at": m["reached_at"].isoformat() if m["reached_at"] else None,
-                "target": (m["details"] or {}),
-            }
-            for m in milestones
-        }
 
-    total_bnb = float(total_row["total_bnb"])
+        ms_map = {}
+        for m in milestones:
+            details = m["details"]
+            # asyncpg may return jsonb as str if no codec registered
+            if isinstance(details, str):
+                try:
+                    details = json.loads(details)
+                except Exception:
+                    details = {}
+            elif details is None:
+                details = {}
+            ms_map[m["milestone_type"]] = {
+                "reached_at": m["reached_at"].isoformat() if m["reached_at"] else None,
+                "target": details,
+            }
+
+    total_bnb = float(total_row["total_bnb"]) if total_row["total_bnb"] is not None else 0.0
+    unique = int(total_row["unique_participants"]) if total_row["unique_participants"] is not None else 0
+    confirmed = int(total_row["confirmed_count"]) if total_row["confirmed_count"] is not None else 0
+
     return {
         "total_raised_bnb":    total_bnb,
         "soft_cap_bnb":        SOFT_CAP_BNB,
@@ -373,8 +396,8 @@ async def get_status():
         "hard_cap_pct":        round((total_bnb / HARD_CAP_BNB) * 100, 1),
         "soft_cap_met":        total_bnb >= SOFT_CAP_BNB,
         "hard_cap_met":        total_bnb >= HARD_CAP_BNB,
-        "unique_participants": total_row["unique_participants"],
-        "confirmed_tx_count":  total_row["confirmed_count"],
+        "unique_participants": unique,
+        "confirmed_tx_count":  confirmed,
         "milestones":          ms_map,
         "as_of":               datetime.now(timezone.utc).isoformat(),
     }
@@ -408,7 +431,11 @@ async def get_top_contributors():
 @router.get("/milestones")
 async def get_milestones():
     """Public — list of milestones with their reached_at timestamps."""
-    await _ensure_tables_ready()
+    import json
+    try:
+        await _ensure_tables_ready()
+    except HTTPException:
+        return {"milestones": [], "status_note": "tables not yet initialized"}
 
     async with _pool.acquire() as conn:
         rows = await conn.fetch("""
@@ -417,18 +444,24 @@ async def get_milestones():
             ORDER BY id
         """)
 
-    return {
-        "milestones": [
-            {
-                "id":                row["id"],
-                "milestone_type":    row["milestone_type"],
-                "reached_at":        row["reached_at"].isoformat() if row["reached_at"] else None,
-                "details":           row["details"] or {},
-                "notified_telegram": row["notified_telegram"],
-            }
-            for row in rows
-        ]
-    }
+    out = []
+    for row in rows:
+        details = row["details"]
+        if isinstance(details, str):
+            try:
+                details = json.loads(details)
+            except Exception:
+                details = {}
+        elif details is None:
+            details = {}
+        out.append({
+            "id":                row["id"],
+            "milestone_type":    row["milestone_type"],
+            "reached_at":        row["reached_at"].isoformat() if row["reached_at"] else None,
+            "details":           details,
+            "notified_telegram": row["notified_telegram"],
+        })
+    return {"milestones": out}
 
 
 # ── ADMIN endpoints ──
