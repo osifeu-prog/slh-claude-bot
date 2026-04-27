@@ -25,14 +25,19 @@ Endpoints:
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+import aiohttp
 from fastapi import APIRouter
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/brain", tags=["Brain"])
+
+# Where to send Brain Alerts (Osif's Telegram)
+ALERT_RECIPIENT_ID = int(os.getenv("ADMIN_USER_ID", "224223270"))
 
 _pool = None
 
@@ -398,6 +403,106 @@ async def _log_state(
 
 
 # ─────────────────────────────────────────────────────────────────────────
+# Brain Alerts — fire Telegram DM on state transitions
+# ─────────────────────────────────────────────────────────────────────────
+
+
+async def _get_previous_state() -> Optional[str]:
+    """Last logged state from brain_log (excluding the row we're about to insert)."""
+    if not _pool:
+        return None
+    try:
+        await _ensure_brain_log_table()
+        async with _pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT system_state FROM brain_log ORDER BY snapshot_at DESC LIMIT 1"
+            )
+        return row["system_state"] if row else None
+    except Exception:
+        return None
+
+
+def _state_severity(state: str) -> int:
+    """For comparing transitions: HEALTHY=0, DEGRADED=1, CRITICAL=2."""
+    return {"HEALTHY": 0, "DEGRADED": 1, "CRITICAL": 2}.get(state, 0)
+
+
+async def _send_telegram_dm(text: str) -> bool:
+    """Best-effort Telegram DM to Osif. Returns True if sent."""
+    token = (
+        os.getenv("SLH_AIR_TOKEN")
+        or os.getenv("CORE_BOT_TOKEN")
+        or os.getenv("AIRDROP_BOT_TOKEN")
+        or os.getenv("BROADCAST_BOT_TOKEN")
+        or ""
+    )
+    if not token:
+        return False
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    payload = {
+        "chat_id": ALERT_RECIPIENT_ID,
+        "text": text,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True,
+    }
+    try:
+        async with aiohttp.ClientSession() as sess:
+            async with sess.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=5)) as r:
+                return r.status == 200
+    except Exception:
+        return False
+
+
+async def _alert_on_transition(
+    prev_state: Optional[str], new_state: str,
+    score: int, summary: str, issues: List[Issue],
+):
+    """Fire Telegram alert if state changed in a meaningful way.
+
+    Rules:
+    - HEALTHY → DEGRADED: WARN alert
+    - HEALTHY → CRITICAL: URGENT alert
+    - DEGRADED → CRITICAL: URGENT alert
+    - CRITICAL → HEALTHY: RECOVERY alert
+    - DEGRADED → HEALTHY: recovery alert (info)
+    - Same state: no alert (avoid spam)
+    """
+    if prev_state is None:
+        return  # first ever snapshot, nothing to compare to
+    if prev_state == new_state:
+        return  # no change, no alert
+
+    prev_sev = _state_severity(prev_state)
+    new_sev = _state_severity(new_state)
+    is_worsening = new_sev > prev_sev
+    is_recovery = new_sev < prev_sev
+
+    if is_worsening:
+        emoji = "🚨" if new_state == "CRITICAL" else "⚠️"
+        prefix = f"{emoji} <b>SLH Brain — {new_state}</b>"
+    elif is_recovery:
+        emoji = "✅"
+        prefix = f"{emoji} <b>SLH Brain — Recovered to {new_state}</b>"
+    else:
+        return  # shouldn't reach here
+
+    issue_lines = ""
+    if issues:
+        bullets = "\n".join(f"• {i.title}" for i in issues[:3])
+        issue_lines = f"\n\n<b>Issues:</b>\n{bullets}"
+
+    text = (
+        f"{prefix}\n"
+        f"<i>{prev_state} → {new_state}</i>\n"
+        f"Health score: <b>{score}/100</b>\n"
+        f"{summary}"
+        f"{issue_lines}\n\n"
+        f"<a href='https://slh-nft.com/founder.html'>Open Founder Panel</a>"
+    )
+    await _send_telegram_dm(text)
+
+
+# ─────────────────────────────────────────────────────────────────────────
 # Endpoints
 # ─────────────────────────────────────────────────────────────────────────
 
@@ -433,6 +538,21 @@ async def get_brain_state(log: bool = True):
     )
     age_ms = int((time.monotonic() - started) * 1000)
 
+    # Phase 3 — fire Telegram alert if state TRANSITIONED since last snapshot.
+    # Done before _log_state so 'previous state' query doesn't see this snapshot.
+    transition_alert_sent = False
+    if log:
+        try:
+            prev = await asyncio.wait_for(_get_previous_state(), timeout=1.5)
+            if prev is not None and prev != state:
+                await asyncio.wait_for(
+                    _alert_on_transition(prev, state, score, summary, issues),
+                    timeout=5.0,
+                )
+                transition_alert_sent = True
+        except Exception:
+            pass
+
     # Log snapshot for trend / learning (Phase 2C)  best-effort, won't block
     if log:
         try:
@@ -453,7 +573,26 @@ async def get_brain_state(log: bool = True):
         "recommended_actions": [a.model_dump() for a in actions],
         "confidence": confidence,
         "age_ms": age_ms,
+        "transition_alert_sent": transition_alert_sent,
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Phase 3 — manual alert trigger (for testing / manual ops)
+# ─────────────────────────────────────────────────────────────────────────
+
+
+@router.post("/alert/test")
+async def trigger_test_alert():
+    """Sends a test Telegram alert to ALERT_RECIPIENT_ID. Use to verify wiring."""
+    text = (
+        "🧪 <b>SLH Brain — Test Alert</b>\n"
+        "If you received this, Brain → Telegram pipeline is working.\n"
+        f"Recipient: <code>{ALERT_RECIPIENT_ID}</code>\n"
+        f"<a href='https://slh-nft.com/founder.html'>Open Founder Panel</a>"
+    )
+    sent = await _send_telegram_dm(text)
+    return {"ok": sent, "recipient_id": ALERT_RECIPIENT_ID}
 
 
 @router.get("/history")
