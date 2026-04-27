@@ -134,6 +134,7 @@ from routes.esp_events import router as esp_events_router, set_pool as _esp_even
 from routes.campaign_admin import router as campaign_admin_router, set_pool as _campaign_admin_set_pool
 from routes.academia_ugc import router as academia_ugc_router, set_pool as _academia_ugc_set_pool, init_academia_ugc_tables as _init_academia_ugc
 from routes.ambassador_crm import router as ambassador_crm_router, set_pool as _ambassador_crm_set_pool
+from routes.ido import router as ido_router, set_pool as _ido_set_pool
 from routes.therapists import router as therapists_router, set_pool as _therapists_set_pool
 from routes.device_inventory import router as device_inventory_router, set_pool as _device_inventory_set_pool
 from routes.tasks import router as tasks_router, set_pool as _tasks_set_pool
@@ -341,6 +342,7 @@ app.include_router(admin_rotate_router)
 app.include_router(brain_router)
 app.include_router(rotation_pipeline_router)
 app.include_router(ambassador_crm_router)
+app.include_router(ido_router)
 app.include_router(therapists_router)
 app.include_router(device_inventory_router)
 app.include_router(tasks_router)
@@ -415,7 +417,7 @@ async def startup():
                        _creator_set_pool, _wellness_set_pool, _threat_set_pool, _whatsapp_set_pool,
                        _system_audit_set_pool, _agent_hub_set_pool, _campaign_admin_set_pool, _academia_ugc_set_pool,
                        _bot_registry_set_pool, _admin_rotate_set_pool,
-                       _ambassador_crm_set_pool, _therapists_set_pool, _tasks_set_pool,
+                       _ambassador_crm_set_pool, _ido_set_pool, _therapists_set_pool, _tasks_set_pool,
                        _device_inventory_set_pool, _system_status_set_pool,
                        _investor_engine_set_pool, _courses_set_pool, _esp_events_set_pool,
                        _brain_set_pool):
