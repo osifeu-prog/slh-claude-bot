@@ -177,7 +177,7 @@ async def _collect_ido_signal() -> Signal:
         name="ido",
         status="warn" if days_left < 0 else "ok",
         value={"phase": "planning", "days_to_target": days_left},
-        detail=f"IDO planning · {days_left}d to target launch",
+        detail=f"IDO planning | {days_left}d to target launch",
     )
 
 
@@ -316,12 +316,12 @@ def _evaluate(signals: Dict[str, Signal]) -> Tuple[str, int, List[Issue], List[A
 
 def _summary(state: str, score: int, issues: List[Issue]) -> str:
     if state == "HEALTHY":
-        return f"All systems operational · health {score}/100 · no action required."
+        return f"All systems operational | health {score}/100 | no action required."
     if state == "CRITICAL":
         crit = ", ".join(i.title for i in issues if i.severity == "CRITICAL")
-        return f"CRITICAL · health {score}/100 · {crit or 'multiple failures'}"
+        return f"CRITICAL | health {score}/100 | {crit or 'multiple failures'}"
     titles = ", ".join(i.title for i in issues[:2])
-    return f"Degraded · health {score}/100 · {titles or 'minor issues'}"
+    return f"Degraded | health {score}/100 | {titles or 'minor issues'}"
 
 
 # ─────────────────────────────────────────────────────────────────────────
