@@ -535,30 +535,39 @@ def main():
                             send_message(chat_id, get_help_message())
 
                         elif text == "/me":
-                            card = get_member_card(chat_id)
+                            resp = get_member_card(chat_id)
+                            # API returns {"ok":true,"card":{...}} — unwrap
+                            card = (resp or {}).get('card') if isinstance(resp, dict) else None
                             if not card:
                                 send_message(chat_id,
                                     "❓ <b>לא נמצא חשבון</b>\n\n"
                                     "כנס לאתר https://slh-nft.com והתחבר עם טלגרם כדי לפתוח חשבון.\n\n"
                                     "אם כבר נרשמת — נסה /login לקישור התחברות מהיר.")
                             else:
+                                name_ = card.get('name') or 'משתמש'
                                 tier = card.get('tier', '—')
-                                xp = card.get('xp_total', 0)
                                 slh = card.get('slh_balance', 0)
                                 zvk = card.get('zvk_balance', 0)
                                 refs = card.get('referrals', 0)
+                                rep = card.get('rep_score', 0)
+                                nft = card.get('nft_number', '—')
                                 is_th = '✅ כן' if card.get('is_therapist') else '—'
+                                genesis = '✅' if card.get('genesis_contributor') else '—'
+                                joined = card.get('joined') or '—'
                                 send_message(chat_id, f"""
-👤 <b>הפרופיל שלך</b>
+👤 <b>{name_}</b> · #{nft}
 
 🆔 <code>{chat_id}</code>
-🏆 רמה: <b>{tier}</b> · {xp} XP
+🏆 רמה: <b>{tier}</b>
+⭐ REP: {rep}
 💎 SLH: <b>{slh}</b>
 🪙 ZVK: <b>{zvk}</b>
 👥 הפניות: {refs}
 🩺 מטפל מאושר: {is_th}
+🎟️ Genesis: {genesis}
+📅 הצטרף: {joined}
 
-🔗 לוח בקרה: https://slh-nft.com/dashboard.html?uid={chat_id}
+🔗 <a href="https://slh-nft.com/dashboard.html?uid={chat_id}">לוח בקרה</a>
 """)
 
                         elif text == "/dashboard":
@@ -643,7 +652,15 @@ https://slh-nft.com/wallet.html?uid={chat_id}
                                 pending = approved = "?"
                                 try:
                                     h = requests.get(f"{SLH_API_BASE}/api/health", timeout=5).json()
-                                    if not h.get("db_connected"):
+                                    # /api/health may return either:
+                                    #   {"status":"ok","db":"connected",...}
+                                    #   {"status":"ok","db_connected":true,...}
+                                    db_ok = (
+                                        h.get("db_connected") is True
+                                        or h.get("db") == "connected"
+                                        or h.get("status") == "ok"
+                                    )
+                                    if not db_ok:
                                         health_emoji = "🔴"
                                 except Exception:
                                     health_emoji = "🟡"
