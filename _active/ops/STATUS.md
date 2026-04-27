@@ -21,15 +21,25 @@ This is the **on-chain treasury for SLH IDO proceeds**. PinkSale will be configu
 
 ---
 
-## 🧠 Command Brain — LIVE (Phase 2 deployed)
+## 🧠 Command Brain — LIVE (Phase 1+2+3 deployed 2026-04-28)
 
 **Endpoints:**
-- `GET /api/brain/state` — Decision Layer JSON (system_state, health_score, issues, actions, summary). Auto-logs to `brain_log`.
-- `GET /api/brain/history?hours=24` — recent state snapshots + window stats
-- `GET /api/brain/prompt` — LLM-ready structured prompt
+- `GET /api/brain/state` — Decision Layer JSON (system_state, health_score, issues, actions, summary). Auto-logs to `brain_log` + fires Telegram alert on state transitions.
+- `GET /api/brain/history?hours=24` — recent state snapshots + window stats (samples, avg/min/max score, healthy/degraded/critical %)
+- `GET /api/brain/prompt` — LLM-ready structured prompt (role, context, goal, constraints, available_actions)
+- `POST /api/brain/alert/test` — manual trigger to verify Telegram pipeline
 - `GET /api/brain/health` — quick liveness probe
 
-**Decision Strip** displayed at top of `/founder.html` (auto-refresh 30s).
+**Brain Alerts:** state transitions (HEALTHY ↔ DEGRADED ↔ CRITICAL) fire DM to Osif (telegram_id 224223270) via `SLH_AIR_TOKEN` bot. No duplicate alerts (only on state change).
+
+**Decision Strip** at top of `/founder.html` — System Intelligence summary, health_score 0-100, Next Best Action with CTA, color-coded border.
+
+**Brain Memory panel** on `/founder.html` — sparkline of last 24h, samples count, avg score, healthy %.
+
+**Verified live (2026-04-28):**
+- `system_state: HEALTHY` · `health_score: 96/100` · 6+ snapshots in brain_log · test alert delivered.
+
+**Commits:** `07bc2b2` Phase 1 → `b376393` encoding fix → `4793f35` Phase 2 → `d6fe46c` Phase 3 → `c17680e` IDO recursion fix.
 
 ---
 
@@ -101,12 +111,13 @@ curl -H "X-Admin-Key: slh_admin_2026_rotated_04_20" \
 
 ## 🛠️ Open Blockers (P0 only — see KNOWN_ISSUES.md for full list)
 
-1. **Marshall Islands LLC application** — 7-10 days. Hasn't started yet. Blocks treasury, blocks IDO.
-2. **Gnosis Safe 2-of-3** — needs Osif + Tzvika + recovery hardware wallet. Hasn't been set up.
-3. **Audit firm selection** — CertiK Lite vs SolidProof. 5-7 days lead time. Required pre-PinkSale.
-4. **FastAPI deploy on Railway** — `/api/ido/*` endpoints can't go live until FastAPI service is up. Per CLAUDE.md, current `slh-api-production.up.railway.app` IS responding 200, but CLAUDE.md claims it's not — discrepancy needs resolving.
+1. **Marshall Islands LLC** — DECLINED by Osif (no free version exists). Skip for now; personal liability accepted. Re-evaluate before IDO go-live.
+2. **Gnosis Safe upgrade to 2-of-3** — Safe `0x9DD8aF7Ac0f601CD473422311b2942DAE9D0BD09` deployed at 1/1. Need Tzvika's wallet address + recovery hardware to upgrade. Not blocking, but should be done pre-launch.
+3. **Audit firm selection** — CertiK Lite vs SolidProof. 5-7 days lead time. Required pre-PinkSale go-live.
+4. **investors.html + pitch.html narrative drift** — still pitch Series A. `/ido.html` is the new canonical landing. investors.html should redirect or be archived.
 5. **Railway env vars discrepancy** — admin key mismatch between local `.env` (`QVUvE_…`) and Railway (`slh_admin_2026_rotated_04_20`). Pick one and align.
-6. **investors.html + pitch.html narrative drift** — still pitch Series A. Need IDO rewrite OR explicit dual-narrative.
+6. **30 unrotated bot tokens** — only GAME_BOT_TOKEN rotated. Background risk.
+7. **Binance live trading creds in `.env`** — rotate or move to vault before IDO marketing pulls in attention.
 7. **30 unrotated bot tokens** — only GAME_BOT_TOKEN rotated. Background risk.
 8. **Binance live trading creds in `.env`** — rotate or move to vault.
 9. **/ido.html** — public-facing IDO landing page does NOT exist yet. Listed in IDO plan as required.
