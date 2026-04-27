@@ -54,11 +54,41 @@ from pydantic import BaseModel
 router = APIRouter(prefix="/api/ido", tags=["ido"])
 
 _pool = None
+_tables_ready = False  # set True after init_ido_tables succeeds; lazy-retried on each request
 
 
 def set_pool(pool):
     global _pool
     _pool = pool
+
+
+async def _ensure_tables_ready():
+    """Lazy table-init guard — called from every endpoint.
+
+    If startup-time init_ido_tables() failed (e.g. transient DB issue),
+    the next request will try again. Once tables exist, the flag is set
+    and subsequent requests skip the init cost entirely.
+    """
+    global _tables_ready
+    if _tables_ready:
+        return
+    await _ensure_tables_ready()
+    try:
+        await init_ido_tables()
+        _tables_ready = True
+    except Exception as e:
+        # Don't crash the request — log + try minimal direct check
+        try:
+            async with _pool.acquire() as conn:
+                ok = await conn.fetchval("SELECT to_regclass('ido_transactions') IS NOT NULL")
+                if ok:
+                    _tables_ready = True  # they exist; init failed for unrelated reason
+                else:
+                    raise HTTPException(503, f"IDO tables not ready: {e!r}")
+        except HTTPException:
+            raise
+        except Exception as e2:
+            raise HTTPException(503, f"IDO tables check failed: {e2!r}")
 
 
 # ── DB init (idempotent, runs at startup AFTER set_pool) ──
@@ -306,8 +336,7 @@ async def get_status():
 
     Polled by /ido.html every 30s. Safe for public eyes — only aggregates.
     """
-    if _pool is None:
-        raise HTTPException(503, "DB pool not initialized")
+    await _ensure_tables_ready()
 
     async with _pool.acquire() as conn:
         # Sum of confirmed contributions
@@ -357,8 +386,7 @@ async def get_top_contributors():
 
     Uses ido_top_contributors view (already filters sybil_score < 50).
     """
-    if _pool is None:
-        raise HTTPException(503, "DB pool not initialized")
+    await _ensure_tables_ready()
 
     async with _pool.acquire() as conn:
         rows = await conn.fetch("SELECT * FROM ido_top_contributors")
@@ -380,8 +408,7 @@ async def get_top_contributors():
 @router.get("/milestones")
 async def get_milestones():
     """Public — list of milestones with their reached_at timestamps."""
-    if _pool is None:
-        raise HTTPException(503, "DB pool not initialized")
+    await _ensure_tables_ready()
 
     async with _pool.acquire() as conn:
         rows = await conn.fetch("""
@@ -413,8 +440,7 @@ async def get_dashboard_summary(x_admin_key: Optional[str] = Header(None)):
     Wraps the ido_dashboard_summary view. Returns null-safe values.
     """
     _require_admin(x_admin_key)
-    if _pool is None:
-        raise HTTPException(503, "DB pool not initialized")
+    await _ensure_tables_ready()
 
     async with _pool.acquire() as conn:
         row = await conn.fetchrow("SELECT * FROM ido_dashboard_summary")
@@ -441,8 +467,7 @@ async def get_transactions(
 ):
     """Admin — paginated tx feed for live monitoring."""
     _require_admin(x_admin_key)
-    if _pool is None:
-        raise HTTPException(503, "DB pool not initialized")
+    await _ensure_tables_ready()
 
     where_clauses = []
     params: list = []
@@ -490,8 +515,7 @@ async def get_alerts(
 ):
     """Admin — list alerts with severity / actioned filters."""
     _require_admin(x_admin_key)
-    if _pool is None:
-        raise HTTPException(503, "DB pool not initialized")
+    await _ensure_tables_ready()
 
     where_clauses = []
     params: list = []
@@ -550,8 +574,7 @@ async def approve_alert(
     tx — that already settled on-chain. Just records the human decision.
     """
     _require_admin(x_admin_key)
-    if _pool is None:
-        raise HTTPException(503, "DB pool not initialized")
+    await _ensure_tables_ready()
 
     async with _pool.acquire() as conn:
         row = await conn.fetchrow(
@@ -591,8 +614,7 @@ async def reject_alert(
     This endpoint just records the decision and creates an audit trail.
     """
     _require_admin(x_admin_key)
-    if _pool is None:
-        raise HTTPException(503, "DB pool not initialized")
+    await _ensure_tables_ready()
 
     async with _pool.acquire() as conn:
         row = await conn.fetchrow(
@@ -631,8 +653,7 @@ async def get_clusters(
 ):
     """Admin — sybil cluster list. Confirmed clusters get auto-blocked downstream."""
     _require_admin(x_admin_key)
-    if _pool is None:
-        raise HTTPException(503, "DB pool not initialized")
+    await _ensure_tables_ready()
 
     where_clauses = ["risk_score >= $1"]
     params: list = [min_risk]
