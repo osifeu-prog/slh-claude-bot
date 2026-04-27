@@ -143,11 +143,45 @@ def get_help_message():
 🌐 כל הפעולות מסתנכרנות עם https://slh-nft.com
 """
 
+SLH_API_BASE = os.getenv("SLH_API_URL", "https://slh-api-production.up.railway.app")
+BOT_SYNC_SECRET = os.getenv("BOT_SYNC_SECRET", "")
+
+
+def slh_bot_sync(chat_id, name, username, referrer_id=None):
+    """
+    Upsert web_users row in SLH database (single source of truth) and
+    obtain a JWT for one-tap login. Called on every /start so the bot
+    and the website stay in lockstep — same telegram_id, same record.
+
+    Returns dict with login_url + jwt + is_registered, or None on failure.
+    Failure modes: BOT_SYNC_SECRET missing, network error, 403 from API.
+    """
+    if not BOT_SYNC_SECRET:
+        logger.warning("BOT_SYNC_SECRET unset — skipping /api/auth/bot-sync")
+        return None
+    try:
+        u = (username or "").lstrip("@")
+        payload = {
+            "telegram_id": int(chat_id),
+            "username": u,
+            "first_name": name or "",
+            "photo_url": "",
+            "referrer_id": referrer_id,
+            "bot_secret": BOT_SYNC_SECRET,
+        }
+        r = requests.post(f"{SLH_API_BASE}/api/auth/bot-sync", json=payload, timeout=10)
+        if r.status_code == 200:
+            return r.json()
+        logger.error(f"bot-sync HTTP {r.status_code}: {r.text[:200]}")
+    except Exception as e:
+        logger.error(f"bot-sync request failed: {e!r}")
+    return None
+
+
 def get_member_card(chat_id):
     """Fetch member card from SLH API for this telegram_id."""
-    api_base = os.getenv("SLH_API_URL", "https://slh-api-production.up.railway.app")
     try:
-        r = requests.get(f"{api_base}/api/member-card/{chat_id}", timeout=10)
+        r = requests.get(f"{SLH_API_BASE}/api/member-card/{chat_id}", timeout=10)
         if r.status_code == 200:
             return r.json()
         if r.status_code == 404:
@@ -443,35 +477,53 @@ def main():
                         
                         # פקודות מיוחדות
                         if text == "/start" or text.startswith("/start "):
-                            # Phase 4: deep-link parser. /start therapist_<id>
-                            # pairs the chat_id with an approved therapist app.
                             arg = text[len("/start"):].strip()
+                            referrer_id = None
+                            therapist_app_id = None
+
+                            # Parse deep-link arg
                             if arg.startswith("therapist_"):
                                 try:
-                                    app_id = int(arg.split("_", 1)[1])
-                                    ok, msg = _link_therapist_telegram(app_id, chat_id)
-                                    send_message(chat_id, msg)
-                                    if ok and str(chat_id) != ADMIN_ID:
-                                        send_message(
-                                            ADMIN_ID,
-                                            f"🩺 מטפל חיבר טלגרם:\n"
-                                            f"app #{app_id} ↔ tg {chat_id} ({name})",
-                                        )
-                                    # don't fall through to airdrop handler
-                                    continue
+                                    therapist_app_id = int(arg.split("_", 1)[1])
                                 except (ValueError, IndexError):
                                     send_message(chat_id, "❌ קישור לא תקין. ודא שלחצת על הקישור המלא מהאתר.")
                                     continue
-                            # Plain /start (no args, or unknown deep-link) →
-                            # show new SLH-companion welcome with website links.
-                            # Do NOT enter the legacy airdrop awaiting-username
-                            # state — only /buy explicitly opts into that flow.
-                            send_message(chat_id, get_welcome_message(name, username))
-                            # Notify admin of new chat (best-effort, no state mutation)
+                            elif arg.startswith("ref_"):
+                                try:
+                                    referrer_id = int(arg.split("_", 1)[1])
+                                except (ValueError, IndexError):
+                                    referrer_id = None
+
+                            # ALWAYS sync to SLH DB first — single source of truth.
+                            # This creates/refreshes the web_users row and returns
+                            # a one-tap login URL with JWT.
+                            sync = slh_bot_sync(chat_id, name, username, referrer_id)
+
+                            # Therapist deep-link handling (after sync so user_id is set)
+                            if therapist_app_id is not None:
+                                ok, link_msg = _link_therapist_telegram(therapist_app_id, chat_id)
+                                send_message(chat_id, link_msg)
+                                if ok and str(chat_id) != ADMIN_ID:
+                                    try:
+                                        send_message(ADMIN_ID,
+                                            f"🩺 מטפל חיבר טלגרם:\n"
+                                            f"app #{therapist_app_id} ↔ tg {chat_id} ({name})")
+                                    except Exception:
+                                        pass
+                                continue
+
+                            # Plain /start — show companion welcome + login URL
+                            welcome = get_welcome_message(name, username)
+                            if sync and sync.get("login_url"):
+                                welcome += f"\n🔐 <b>קישור התחברות מיידי:</b>\n{sync['login_url']}\n"
+                            send_message(chat_id, welcome)
+
                             if str(chat_id) != ADMIN_ID:
                                 try:
+                                    sync_status = "✅ סונכרן" if sync else "⚠️ sync נכשל"
                                     send_message(ADMIN_ID,
-                                        f"👤 משתמש פתח את הבוט:\n{name} (@{username or '—'})\nID: {chat_id}")
+                                        f"👤 משתמש פתח את הבוט ({sync_status}):\n"
+                                        f"{name} (@{username or '—'})\nID: {chat_id}")
                                 except Exception:
                                     pass
 

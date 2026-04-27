@@ -206,6 +206,10 @@ services:
       # Therapists Network — Phase 4 deep-link (must match slh-api Railway env)
       TELEGRAM_LINK_SECRET: ${TELEGRAM_LINK_SECRET:-}
       SLH_THERAPISTS_API: ${SLH_THERAPISTS_API:-https://slh-api-production.up.railway.app/api/therapists/telegram/link}
+      # Bot ↔ Website unification: shared secret for /api/auth/bot-sync
+      # so every /start auto-creates / refreshes web_users row.
+      BOT_SYNC_SECRET: ${BOT_SYNC_SECRET:-}
+      SLH_API_URL: ${SLH_API_URL:-https://slh-api-production.up.railway.app}
 
   campaign-bot:
     build:
