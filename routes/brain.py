@@ -325,15 +325,89 @@ def _summary(state: str, score: int, issues: List[Issue]) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────────
+# Brain Memory — log every state snapshot for trend / learning analysis
+# ─────────────────────────────────────────────────────────────────────────
+
+
+_BRAIN_LOG_TABLE_READY = False
+
+
+async def _ensure_brain_log_table():
+    """Idempotent: create brain_log table if missing."""
+    global _BRAIN_LOG_TABLE_READY
+    if _BRAIN_LOG_TABLE_READY or not _pool:
+        return
+    try:
+        async with _pool.acquire() as conn:
+            await conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS brain_log (
+                    id BIGSERIAL PRIMARY KEY,
+                    snapshot_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                    system_state TEXT NOT NULL,
+                    health_score INT NOT NULL,
+                    summary TEXT,
+                    signals_json JSONB,
+                    issues_count INT,
+                    actions_count INT,
+                    confidence REAL
+                )
+                """
+            )
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_brain_log_snapshot_at "
+                "ON brain_log(snapshot_at DESC)"
+            )
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_brain_log_state "
+                "ON brain_log(system_state, snapshot_at DESC)"
+            )
+        _BRAIN_LOG_TABLE_READY = True
+    except Exception as e:
+        # Don't crash the API just because logging is unavailable
+        import logging
+        logging.warning(f"brain_log table creation failed: {e}")
+
+
+async def _log_state(
+    state: str, score: int, summary: str,
+    signals: Dict[str, Signal], issues_count: int, actions_count: int,
+    confidence: float,
+):
+    """Best-effort log to brain_log. Never raises."""
+    if not _pool:
+        return
+    try:
+        await _ensure_brain_log_table()
+        async with _pool.acquire() as conn:
+            import json as _json
+            await conn.execute(
+                """
+                INSERT INTO brain_log
+                    (system_state, health_score, summary, signals_json,
+                     issues_count, actions_count, confidence)
+                VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7)
+                """,
+                state, score, summary,
+                _json.dumps({k: v.model_dump() for k, v in signals.items()}),
+                issues_count, actions_count, confidence,
+            )
+    except Exception as e:
+        import logging
+        logging.debug(f"brain_log insert skipped: {e}")
+
+
+# ─────────────────────────────────────────────────────────────────────────
 # Endpoints
 # ─────────────────────────────────────────────────────────────────────────
 
 
 @router.get("/state")
-async def get_brain_state():
+async def get_brain_state(log: bool = True):
     """Full BrainState JSON. No auth required (read-only system status).
 
     UI panels and prompt engines call this every 30s to know what to do.
+    Set ?log=false to skip the brain_log INSERT (e.g. for health probes).
     """
     started = time.monotonic()
     api_s, db_s, dev_s, usr_s, hb_s, ido_s = await asyncio.gather(
@@ -359,6 +433,16 @@ async def get_brain_state():
     )
     age_ms = int((time.monotonic() - started) * 1000)
 
+    # Log snapshot for trend / learning (Phase 2C)  best-effort, won't block
+    if log:
+        try:
+            await asyncio.wait_for(
+                _log_state(state, score, summary, signals, len(issues), len(actions), confidence),
+                timeout=2.0,
+            )
+        except Exception:
+            pass
+
     return {
         "system_state": state,
         "health_score": score,
@@ -369,6 +453,132 @@ async def get_brain_state():
         "recommended_actions": [a.model_dump() for a in actions],
         "confidence": confidence,
         "age_ms": age_ms,
+    }
+
+
+@router.get("/history")
+async def get_brain_history(hours: int = 24, limit: int = 200):
+    """Recent brain_log snapshots for trend analysis.
+
+    Returns reverse-chrono list of state snapshots.
+    Use case: 'show me the last 24h of system state changes'.
+    """
+    if not _pool:
+        return {"error": "pool_not_initialized", "snapshots": []}
+    if hours < 1 or hours > 24 * 30:
+        hours = 24
+    if limit < 1 or limit > 1000:
+        limit = 200
+    try:
+        await _ensure_brain_log_table()
+        async with _pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT snapshot_at, system_state, health_score, summary,
+                       issues_count, actions_count, confidence
+                FROM brain_log
+                WHERE snapshot_at > NOW() - ($1::int || ' hours')::INTERVAL
+                ORDER BY snapshot_at DESC
+                LIMIT $2
+                """,
+                hours, limit,
+            )
+        snapshots = [
+            {
+                "snapshot_at": r["snapshot_at"].isoformat() if r["snapshot_at"] else None,
+                "system_state": r["system_state"],
+                "health_score": r["health_score"],
+                "summary": r["summary"],
+                "issues_count": r["issues_count"],
+                "actions_count": r["actions_count"],
+                "confidence": float(r["confidence"]) if r["confidence"] is not None else None,
+            }
+            for r in rows
+        ]
+        # Aggregate stats over the window
+        if snapshots:
+            scores = [s["health_score"] for s in snapshots]
+            states = [s["system_state"] for s in snapshots]
+            stats = {
+                "samples": len(snapshots),
+                "avg_score": round(sum(scores) / len(scores), 1),
+                "min_score": min(scores),
+                "max_score": max(scores),
+                "healthy_pct": round(100 * states.count("HEALTHY") / len(states), 1),
+                "degraded_pct": round(100 * states.count("DEGRADED") / len(states), 1),
+                "critical_pct": round(100 * states.count("CRITICAL") / len(states), 1),
+            }
+        else:
+            stats = {"samples": 0}
+        return {"window_hours": hours, "stats": stats, "snapshots": snapshots}
+    except Exception as e:
+        return {"error": str(e)[:200], "snapshots": []}
+
+
+@router.get("/prompt")
+async def get_brain_prompt():
+    """Structured LLM prompt derived from current Brain state.
+
+    Returns a JSON ready to be passed to any LLM (Claude, GPT, etc.) as the
+    `messages` content. The 'context' field IS the BrainState; the 'goal' is
+    determined by current state; constraints are static safety guards.
+
+    Use case: feed this into Claude/Sonnet to get human-language analysis or
+    auto-recovery suggestions.
+    """
+    state_resp = await get_brain_state(log=False)
+    state = state_resp["system_state"]
+    score = state_resp["health_score"]
+
+    # Goal mapping by state
+    if state == "HEALTHY":
+        goal = "Identify any opportunities for proactive improvement, e.g. trend signals, capacity planning."
+    elif state == "DEGRADED":
+        goal = "Restore system to HEALTHY state. Prioritize actions by impact and confidence."
+    else:  # CRITICAL
+        goal = "Stabilize the system immediately. Prevent data loss and downtime cascades."
+
+    # Available action IDs (the LLM picks from these — won't invent unsafe ones)
+    available_actions = [
+        {"id": a["id"], "label": a["label"], "impact": a["impact"]}
+        for a in state_resp["recommended_actions"]
+    ]
+
+    return {
+        "role": "system_operator",
+        "model_hint": "claude-sonnet-4.5 or gpt-4o (any model with JSON mode)",
+        "context": {
+            "system_state": state,
+            "health_score": score,
+            "summary": state_resp["summary"],
+            "signals": state_resp["signals"],
+            "critical_issues": state_resp["critical_issues"],
+            "checked_at": state_resp["checked_at"],
+        },
+        "goal": goal,
+        "constraints": [
+            "no downtime",
+            "preserve data integrity",
+            "do not invent action_ids — only choose from available_actions",
+            "if confidence < 0.5, recommend human review before execution",
+        ],
+        "available_actions": available_actions,
+        "expected_output": {
+            "format": "json",
+            "schema": {
+                "chosen_action_id": "string (one of available_actions.id) or 'NONE'",
+                "reasoning": "string (1-3 sentences in Hebrew)",
+                "confidence": "float 0..1",
+                "human_review_required": "bool",
+            },
+        },
+        "system_prompt_template": (
+            "You are SLH Spark's Command Brain operator. Read the context "
+            "(current system state and signals) and pick the single best "
+            "action from available_actions that addresses the goal under the "
+            "constraints. Output JSON matching expected_output.schema. "
+            "Respond in Hebrew."
+        ),
     }
 
 
