@@ -98,19 +98,65 @@ def call_api(endpoint, method="POST", data=None):
 # ====================
 def get_welcome_message(name, username=""):
     return f"""
-🎉 <b>ברוך הבא ל-SLH Airdrop System!</b>
+🌟 <b>ברוך הבא ל-SLH Spark!</b>
 
-👤 <b>משתמש:</b> {name}
-{'@' + username if username else ''}
+👤 {name}{(' (@' + username + ')') if username else ''}
 
-💰 <b>מבצע השקה בלעדי:</b>
- 1,000 טוקני SLH = 44.4 ₪ בלבד!
- קבלה אוטומטית תוך 24 שעות
- תמיכה טכנית 24/7
+🌐 <b>אתר הקהילה:</b>
+https://slh-nft.com
 
-🚀 <b>התחלת תהליך:</b>
-שלח לי את שם המשתמש הטלגרם שלך (לדוגמה: @username)
+📋 <b>פקודות זמינות:</b>
+/me — הפרופיל שלך + יתרות
+/dashboard — לוח בקרה אישי
+/therapists — ספריית מטפלים
+/help — רשימת פקודות מלאה
+/buy — רכישת SLH (Genesis Pack)
+
+💡 הבוט מקושר עם האתר ועם רשת המטפלים. כל פעולה כאן מסתנכרנת לחשבון שלך באתר.
+
+⚠️ זהו פרויקט בשלב Pre-Launch. גילוי סיכון מלא: https://slh-nft.com/risk.html
 """
+
+def get_help_message():
+    return """
+📖 <b>פקודות הבוט</b>
+
+<b>חשבון:</b>
+/me — פרופיל שלך + טוקנים + סטטוס מטפל
+/dashboard — קישור ללוח בקרה אישי
+/login — קישור התחברות מהיר לאתר
+
+<b>קהילה:</b>
+/therapists — ספריית מטפלים מאושרים
+/courses — קורסים זמינים
+/blog — בלוג יומי
+
+<b>תשלומים:</b>
+/buy — רכישת Genesis Pack (1,000 SLH ב-44.4 TON)
+/wallet — קישור לארנק SLH
+
+<b>תמיכה:</b>
+/help — מסך זה
+/support — צור קשר עם הצוות
+/admin — פאנל ניהול (לאדמין בלבד)
+
+🌐 כל הפעולות מסתנכרנות עם https://slh-nft.com
+"""
+
+def get_member_card(chat_id):
+    """Fetch member card from SLH API for this telegram_id."""
+    api_base = os.getenv("SLH_API_URL", "https://slh-api-production.up.railway.app")
+    try:
+        r = requests.get(f"{api_base}/api/member-card/{chat_id}", timeout=10)
+        if r.status_code == 200:
+            return r.json()
+        if r.status_code == 404:
+            return None
+        logger.error(f"member-card {chat_id} HTTP {r.status_code}")
+        return None
+    except Exception as e:
+        logger.error(f"member-card fetch failed: {e!r}")
+        return None
 
 def get_payment_instructions():
     return f"""
@@ -366,9 +412,11 @@ def main():
     offset = 0
     
     logger.info("=" * 50)
-    logger.info("🤖 SLH Airdrop Bot - גרסה סופית")
-    logger.info(f"👤 מנהל: {ADMIN_ID}")
-    logger.info(f"🌐 API: {API_URL}")
+    logger.info("🤖 SLH Companion Bot — synced with slh-nft.com")
+    logger.info(f"👤 ADMIN_ID: {ADMIN_ID}")
+    logger.info(f"🌐 Airdrop API (legacy /buy): {API_URL}")
+    logger.info(f"🩺 Therapists API: {SLH_THERAPISTS_API}")
+    logger.info(f"🔐 TELEGRAM_LINK_SECRET set: {bool(TELEGRAM_LINK_SECRET)}")
     logger.info("=" * 50)
     
     while True:
@@ -414,69 +462,159 @@ def main():
                                 except (ValueError, IndexError):
                                     send_message(chat_id, "❌ קישור לא תקין. ודא שלחצת על הקישור המלא מהאתר.")
                                     continue
-                            # Default: airdrop /start flow
+                            # Plain /start (no args, or unknown deep-link) →
+                            # show new SLH-companion welcome with website links.
+                            # Do NOT enter the legacy airdrop awaiting-username
+                            # state — only /buy explicitly opts into that flow.
+                            send_message(chat_id, get_welcome_message(name, username))
+                            # Notify admin of new chat (best-effort, no state mutation)
+                            if str(chat_id) != ADMIN_ID:
+                                try:
+                                    send_message(ADMIN_ID,
+                                        f"👤 משתמש פתח את הבוט:\n{name} (@{username or '—'})\nID: {chat_id}")
+                                except Exception:
+                                    pass
+
+                        elif text == "/help":
+                            send_message(chat_id, get_help_message())
+
+                        elif text == "/me":
+                            card = get_member_card(chat_id)
+                            if not card:
+                                send_message(chat_id,
+                                    "❓ <b>לא נמצא חשבון</b>\n\n"
+                                    "כנס לאתר https://slh-nft.com והתחבר עם טלגרם כדי לפתוח חשבון.\n\n"
+                                    "אם כבר נרשמת — נסה /login לקישור התחברות מהיר.")
+                            else:
+                                tier = card.get('tier', '—')
+                                xp = card.get('xp_total', 0)
+                                slh = card.get('slh_balance', 0)
+                                zvk = card.get('zvk_balance', 0)
+                                refs = card.get('referrals', 0)
+                                is_th = '✅ כן' if card.get('is_therapist') else '—'
+                                send_message(chat_id, f"""
+👤 <b>הפרופיל שלך</b>
+
+🆔 <code>{chat_id}</code>
+🏆 רמה: <b>{tier}</b> · {xp} XP
+💎 SLH: <b>{slh}</b>
+🪙 ZVK: <b>{zvk}</b>
+👥 הפניות: {refs}
+🩺 מטפל מאושר: {is_th}
+
+🔗 לוח בקרה: https://slh-nft.com/dashboard.html?uid={chat_id}
+""")
+
+                        elif text == "/dashboard":
+                            send_message(chat_id, f"""
+📊 <b>לוח בקרה אישי</b>
+
+https://slh-nft.com/dashboard.html?uid={chat_id}
+
+לחץ על הקישור כדי לראות יתרות, השקעות, פעילות והפניות.
+""")
+
+                        elif text == "/therapists":
+                            send_message(chat_id, """
+🩺 <b>רשת המטפלים של SLH</b>
+
+📚 ספריית מטפלים מאושרים:
+https://slh-nft.com/therapists.html
+
+➕ הצטרף כמטפל:
+https://slh-nft.com/for-therapists.html
+
+📋 לוח בקרה למטפל מאושר:
+https://slh-nft.com/dashboard-therapist.html
+""")
+
+                        elif text == "/courses":
+                            send_message(chat_id, """
+🎓 <b>קורסים</b>
+
+https://slh-nft.com/academy/course-1-dynamic-yield.html
+
+קורס חינמי שמסביר את מודל ה-Dynamic Yield של SLH Spark.
+""")
+
+                        elif text == "/blog":
+                            send_message(chat_id, """
+📰 <b>בלוג יומי</b>
+
+https://slh-nft.com/blog.html
+
+עדכון יומי של מה שקרה במערכת — שקוף ומלא.
+""")
+
+                        elif text == "/login":
+                            send_message(chat_id, f"""
+🔐 <b>קישור התחברות מהיר</b>
+
+https://slh-nft.com/dashboard.html?uid={chat_id}
+
+הקישור משלב את ה-Telegram ID שלך אוטומטית.
+""")
+
+                        elif text == "/wallet":
+                            send_message(chat_id, f"""
+💼 <b>הארנק שלך</b>
+
+https://slh-nft.com/wallet.html?uid={chat_id}
+
+חבר MetaMask / Trust Wallet כדי לראות יתרות BSC חיות.
+""")
+
+                        elif text == "/support":
+                            send_message(chat_id, """
+💬 <b>תמיכה</b>
+
+🔵 צוות SLH Spark: @osifeu_prog
+🐛 דווח באג: https://slh-nft.com/bug-report.html
+📚 מדריכים: https://slh-nft.com/guides.html
+""")
+
+                        elif text == "/buy":
+                            # Legacy airdrop flow — kept for users who explicitly opt in.
                             bot.handle_start(chat_id, name, username)
-                        
+
                         elif text == "/status":
                             bot.show_status(chat_id)
-                        
-                        elif text == "/help":
-                            help_msg = """
-❓ <b>עזרה - SLH Airdrop Bot</b>
 
-<b>פקודות:</b>
-/start - התחלת מערכת
-/status - בדיקת סטטוס
-/help - הצגת עזרה זו
-
-<b>תהליך רכישה:</b>
-1. שלח username טלגרם
-2. שלח 44.4 TON לארנק שלנו
-3. שלח את מספר העסקה
-4. קבל 1,000 טוקני SLH
-
-<b>תמיכה:</b> @Osif83
-"""
-                            send_message(chat_id, help_msg)
-                        
                         elif text == "/admin":
                             if str(chat_id) == ADMIN_ID:
-                                admin_panel = f"""
-👑 <b>פאנל ניהול מנהל</b>
+                                send_message(chat_id, f"""
+👑 <b>פאנל ניהול</b>
 
-🌐 API: {API_URL}
-📊 פאנל: {API_URL}/admin/dashboard?admin_key=airdrop_admin_2026
-❤️  בריאות: {API_URL}/health
+🌐 SLH API: https://slh-api-production.up.railway.app/api/health
+📊 Mission Control: https://slh-nft.com/admin/mission-control.html
+🩺 Therapists Admin: https://slh-nft.com/admin/therapists.html
+📈 Reality: https://slh-nft.com/admin/reality.html
+🔐 Secrets Vault: https://slh-nft.com/admin/secrets-vault.html
 
-<b>פקודות:</b>
-/status - סטטוס מערכת
-/users - משתמשים רשומים
-"""
-                                send_message(chat_id, admin_panel)
-                        
+<b>פקודות בוט:</b>
+/status — סטטוס airdrop legacy
+/users — משתמשים רשומים
+""")
+
                         else:
-                            # בדוק מצב נוכחי
+                            # State machine only for users mid-/buy flow
                             state_data = bot.user_states.get(chat_id)
-                            
                             if state_data:
                                 state = state_data.get("state")
-                                
                                 if state == "awaiting_username":
                                     bot.handle_username(chat_id, text)
-                                
+                                    continue
                                 elif state == "awaiting_payment":
                                     bot.handle_transaction(chat_id, text)
-                                
-                                else:
-                                    # ברירת מחדל
-                                    if text.startswith("/"):
-                                        send_message(chat_id, "❓ <b>פקודה לא מוכרת.</b>\n\nלחץ /start להתחיל מחדש.")
-                                    else:
-                                        send_message(chat_id, "🤖 <b>הבוט מוכן!</b>\n\nלחץ /start להתחיל תהליך רכישה.")
+                                    continue
+                            # No state + unknown command → friendly hint
+                            if text.startswith("/"):
+                                send_message(chat_id,
+                                    "❓ <b>פקודה לא מוכרת</b>\n\n"
+                                    "שלח /help לרשימת פקודות.")
                             else:
-                                # אם לא במצב פעיל, התחל מחדש
-                                if text and not text.startswith("/"):
-                                    send_message(chat_id, "🤖 <b>ברוך הבא!</b>\n\nלחץ /start להתחיל תהליך רכישה.")
+                                send_message(chat_id,
+                                    "💡 שלח /help לרשימת פקודות, או /me לפרופיל שלך.")
             
             time.sleep(1)
             
