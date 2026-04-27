@@ -465,38 +465,51 @@ async def get_top_contributors():
 
 @router.get("/milestones")
 async def get_milestones():
-    """Public — list of milestones with their reached_at timestamps."""
-    import json
+    """Public — list of milestones with their reached_at timestamps.
+
+    ALWAYS returns 200; empty list if tables not yet ready.
+    """
+    import json, traceback
+    if _pool is None:
+        return {"milestones": [], "status_note": "pool not initialized"}
+
     try:
-        await _ensure_tables_ready()
-    except HTTPException:
-        return {"milestones": [], "status_note": "tables not yet initialized"}
+        try:
+            await init_ido_tables()
+        except Exception:
+            pass
 
-    async with _pool.acquire() as conn:
-        rows = await conn.fetch("""
-            SELECT id, milestone_type, reached_at, details, notified_telegram, created_at
-            FROM ido_milestones
-            ORDER BY id
-        """)
+        async with _pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT id, milestone_type, reached_at, details, notified_telegram, created_at "
+                "FROM ido_milestones ORDER BY id"
+            )
 
-    out = []
-    for row in rows:
-        details = row["details"]
-        if isinstance(details, str):
-            try:
-                details = json.loads(details)
-            except Exception:
+        out = []
+        for row in rows:
+            details = row["details"]
+            if isinstance(details, str):
+                try:
+                    details = json.loads(details)
+                except Exception:
+                    details = {}
+            elif details is None:
                 details = {}
-        elif details is None:
-            details = {}
-        out.append({
-            "id":                row["id"],
-            "milestone_type":    row["milestone_type"],
-            "reached_at":        row["reached_at"].isoformat() if row["reached_at"] else None,
-            "details":           details,
-            "notified_telegram": row["notified_telegram"],
-        })
-    return {"milestones": out}
+            out.append({
+                "id":                row["id"],
+                "milestone_type":    row["milestone_type"],
+                "reached_at":        row["reached_at"].isoformat() if row["reached_at"] else None,
+                "details":           details,
+                "notified_telegram": row["notified_telegram"],
+            })
+        return {"milestones": out}
+    except Exception as e:
+        return {
+            "milestones": [],
+            "status_note": "pre-launch",
+            "debug_error": repr(e)[:200],
+            "debug_trace": traceback.format_exc()[-300:],
+        }
 
 
 # ── ADMIN endpoints ──
