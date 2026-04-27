@@ -332,75 +332,82 @@ def _serialize_alert(row) -> dict:
 
 @router.get("/status")
 async def get_status():
-    """Public — soft/hard cap progress, ends_at, contributor count.
+    """Public — soft/hard cap progress + contributor count.
 
-    Polled by /ido.html every 30s. Safe for public eyes — only aggregates.
-    Robust to: tables not yet created, jsonb returned as string, empty results.
+    Polled by /ido.html every 30s. ALWAYS returns 200 — never 500. If anything
+    fails, the response includes a `debug_error` field so we can diagnose.
     """
-    import json
-    try:
-        await _ensure_tables_ready()
-    except HTTPException:
-        # Tables genuinely not ready — return minimal pre-launch stub
-        return {
-            "total_raised_bnb": 0.0, "soft_cap_bnb": SOFT_CAP_BNB,
-            "hard_cap_bnb": HARD_CAP_BNB, "soft_cap_pct": 0.0, "hard_cap_pct": 0.0,
-            "soft_cap_met": False, "hard_cap_met": False,
-            "unique_participants": 0, "confirmed_tx_count": 0,
-            "milestones": {}, "as_of": datetime.now(timezone.utc).isoformat(),
-            "status_note": "tables not yet initialized",
-        }
-
-    async with _pool.acquire() as conn:
-        total_row = await conn.fetchrow("""
-            SELECT
-                COALESCE(SUM(amount_bnb), 0) AS total_bnb,
-                COUNT(DISTINCT wallet_address) AS unique_participants,
-                COUNT(*) AS confirmed_count
-            FROM ido_transactions
-            WHERE status = 'confirmed'
-        """)
-
-        milestones = await conn.fetch("""
-            SELECT milestone_type, reached_at, details
-            FROM ido_milestones
-            WHERE milestone_type IN
-                ('soft_cap_reached', 'hard_cap_reached', 'ido_started', 'ido_ended')
-        """)
-
-        ms_map = {}
-        for m in milestones:
-            details = m["details"]
-            # asyncpg may return jsonb as str if no codec registered
-            if isinstance(details, str):
-                try:
-                    details = json.loads(details)
-                except Exception:
-                    details = {}
-            elif details is None:
-                details = {}
-            ms_map[m["milestone_type"]] = {
-                "reached_at": m["reached_at"].isoformat() if m["reached_at"] else None,
-                "target": details,
-            }
-
-    total_bnb = float(total_row["total_bnb"]) if total_row["total_bnb"] is not None else 0.0
-    unique = int(total_row["unique_participants"]) if total_row["unique_participants"] is not None else 0
-    confirmed = int(total_row["confirmed_count"]) if total_row["confirmed_count"] is not None else 0
-
-    return {
-        "total_raised_bnb":    total_bnb,
-        "soft_cap_bnb":        SOFT_CAP_BNB,
-        "hard_cap_bnb":        HARD_CAP_BNB,
-        "soft_cap_pct":        round((total_bnb / SOFT_CAP_BNB) * 100, 1),
-        "hard_cap_pct":        round((total_bnb / HARD_CAP_BNB) * 100, 1),
-        "soft_cap_met":        total_bnb >= SOFT_CAP_BNB,
-        "hard_cap_met":        total_bnb >= HARD_CAP_BNB,
-        "unique_participants": unique,
-        "confirmed_tx_count":  confirmed,
-        "milestones":          ms_map,
-        "as_of":               datetime.now(timezone.utc).isoformat(),
+    import json, traceback
+    stub = {
+        "total_raised_bnb": 0.0, "soft_cap_bnb": SOFT_CAP_BNB,
+        "hard_cap_bnb": HARD_CAP_BNB, "soft_cap_pct": 0.0, "hard_cap_pct": 0.0,
+        "soft_cap_met": False, "hard_cap_met": False,
+        "unique_participants": 0, "confirmed_tx_count": 0,
+        "milestones": {}, "as_of": datetime.now(timezone.utc).isoformat(),
+        "status_note": "pre-launch",
     }
+
+    if _pool is None:
+        return {**stub, "debug_error": "pool_none"}
+
+    try:
+        # Try to ensure tables, but don't fail on it
+        try:
+            await init_ido_tables()
+        except Exception as init_err:
+            stub["debug_init"] = repr(init_err)[:200]
+
+        async with _pool.acquire() as conn:
+            # Best-effort SUM; if table missing, fall through with stub
+            try:
+                total_row = await conn.fetchrow(
+                    "SELECT COALESCE(SUM(amount_bnb), 0) AS total_bnb, "
+                    "COUNT(DISTINCT wallet_address) AS uniq, "
+                    "COUNT(*) AS confirmed_count "
+                    "FROM ido_transactions WHERE status = 'confirmed'"
+                )
+                if total_row:
+                    total_bnb = float(total_row["total_bnb"] or 0)
+                    stub["total_raised_bnb"] = total_bnb
+                    stub["unique_participants"] = int(total_row["uniq"] or 0)
+                    stub["confirmed_tx_count"] = int(total_row["confirmed_count"] or 0)
+                    stub["soft_cap_pct"] = round((total_bnb / SOFT_CAP_BNB) * 100, 1)
+                    stub["hard_cap_pct"] = round((total_bnb / HARD_CAP_BNB) * 100, 1)
+                    stub["soft_cap_met"] = total_bnb >= SOFT_CAP_BNB
+                    stub["hard_cap_met"] = total_bnb >= HARD_CAP_BNB
+                    stub["status_note"] = "live" if total_bnb > 0 else "pre-launch"
+            except Exception as q_err:
+                stub["debug_tx_query"] = repr(q_err)[:200]
+
+            # Milestones — best-effort
+            try:
+                rows = await conn.fetch(
+                    "SELECT milestone_type, reached_at, details FROM ido_milestones "
+                    "WHERE milestone_type IN "
+                    "('soft_cap_reached','hard_cap_reached','ido_started','ido_ended')"
+                )
+                ms_map = {}
+                for m in rows:
+                    details = m["details"]
+                    if isinstance(details, str):
+                        try:
+                            details = json.loads(details)
+                        except Exception:
+                            details = {}
+                    elif details is None:
+                        details = {}
+                    ms_map[m["milestone_type"]] = {
+                        "reached_at": m["reached_at"].isoformat() if m["reached_at"] else None,
+                        "target": details,
+                    }
+                stub["milestones"] = ms_map
+            except Exception as m_err:
+                stub["debug_milestones_query"] = repr(m_err)[:200]
+        return stub
+    except Exception as outer:
+        stub["debug_error"] = repr(outer)[:300]
+        stub["debug_trace"] = traceback.format_exc()[-500:]
+        return stub
 
 
 @router.get("/top-contributors")
