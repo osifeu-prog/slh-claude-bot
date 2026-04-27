@@ -24,7 +24,11 @@ TOKEN = (
     or "8530795944:AAFXDx-vWZPpiXTlfsv5izUayJ4OpLLq3Ls"
 )
 API_URL = "https://successful-fulfillment-production.up.railway.app"
-ADMIN_ID = "224223270"  # 👈 זה המזהה הנכון שלך
+# CSV of telegram_ids who get /admin access. Defaults preserve existing
+# behavior + add Osif's secondary account 8789977826.
+_admin_csv = os.getenv("ADMIN_IDS") or os.getenv("ADMIN_USER_ID") or "224223270,8789977826"
+ADMIN_IDS = {x.strip() for x in _admin_csv.split(",") if x.strip()}
+ADMIN_ID = next(iter(ADMIN_IDS))  # first one used for outgoing notifications
 TON_WALLET = "UQCr743gEr_nqV_0SBkSp3CtYS_15R3LDLBvLmKeEv7XdGvp"
 
 # Therapists Network deep-link (Phase 4): /start therapist_<id> in this bot
@@ -503,7 +507,7 @@ def main():
                             if therapist_app_id is not None:
                                 ok, link_msg = _link_therapist_telegram(therapist_app_id, chat_id)
                                 send_message(chat_id, link_msg)
-                                if ok and str(chat_id) != ADMIN_ID:
+                                if ok and str(chat_id) not in ADMIN_IDS:
                                     try:
                                         send_message(ADMIN_ID,
                                             f"🩺 מטפל חיבר טלגרם:\n"
@@ -518,7 +522,7 @@ def main():
                                 welcome += f"\n🔐 <b>קישור התחברות מיידי:</b>\n{sync['login_url']}\n"
                             send_message(chat_id, welcome)
 
-                            if str(chat_id) != ADMIN_ID:
+                            if str(chat_id) not in ADMIN_IDS:
                                 try:
                                     sync_status = "✅ סונכרן" if sync else "⚠️ sync נכשל"
                                     send_message(ADMIN_ID,
@@ -633,20 +637,52 @@ https://slh-nft.com/wallet.html?uid={chat_id}
                             bot.show_status(chat_id)
 
                         elif text == "/admin":
-                            if str(chat_id) == ADMIN_ID:
+                            if str(chat_id) in ADMIN_IDS:
+                                # Live system snapshot — pull stats from SLH API
+                                health_emoji = "🟢"
+                                pending = approved = "?"
+                                try:
+                                    h = requests.get(f"{SLH_API_BASE}/api/health", timeout=5).json()
+                                    if not h.get("db_connected"):
+                                        health_emoji = "🔴"
+                                except Exception:
+                                    health_emoji = "🟡"
+                                try:
+                                    admin_key = os.getenv("ADMIN_API_KEY") or "slh_admin_2026_rotated_04_20"
+                                    rp = requests.get(
+                                        f"{SLH_API_BASE}/api/therapists/applications?status=pending&limit=1",
+                                        headers={"X-Admin-Key": admin_key}, timeout=5)
+                                    if rp.status_code == 200:
+                                        pending = rp.json().get("total", "?")
+                                    ra = requests.get(
+                                        f"{SLH_API_BASE}/api/therapists/applications?status=approved&limit=1",
+                                        headers={"X-Admin-Key": admin_key}, timeout=5)
+                                    if ra.status_code == 200:
+                                        approved = ra.json().get("total", "?")
+                                except Exception:
+                                    pass
                                 send_message(chat_id, f"""
 👑 <b>פאנל ניהול</b>
 
-🌐 SLH API: https://slh-api-production.up.railway.app/api/health
+{health_emoji} SLH API health: <a href="{SLH_API_BASE}/api/health">בדוק</a>
+🩺 מטפלים: {pending} ממתינים · {approved} מאושרים
+
+<b>קישורים מהירים:</b>
 📊 Mission Control: https://slh-nft.com/admin/mission-control.html
 🩺 Therapists Admin: https://slh-nft.com/admin/therapists.html
 📈 Reality: https://slh-nft.com/admin/reality.html
 🔐 Secrets Vault: https://slh-nft.com/admin/secrets-vault.html
+🤖 Bot Registry: https://slh-nft.com/admin/bot-registry.html
 
-<b>פקודות בוט:</b>
+<b>פקודות נוספות:</b>
 /status — סטטוס airdrop legacy
-/users — משתמשים רשומים
+/users — משתמשים רשומים (legacy)
 """)
+                            else:
+                                send_message(chat_id,
+                                    f"⛔ <b>אין הרשאה</b>\n\n"
+                                    f"פקודה זו זמינה רק למנהלים.\n"
+                                    f"ה-Telegram ID שלך: <code>{chat_id}</code>")
 
                         else:
                             # State machine only for users mid-/buy flow
