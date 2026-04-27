@@ -10749,24 +10749,26 @@ async def device_register(req: DeviceRegisterReq, request: Request):
             except Exception:
                 pass
 
-    # Real SMS fallback (Twilio / Inforu / sms019 / stub). See api/sms_provider.py.
+    # Real SMS — sent in PARALLEL with Telegram (not just fallback).
+    # 2026-04-27: Osif requested both channels simultaneously (TG + SMS),
+    # so users get OTP through every available delivery surface.
+    # If SMS_PROVIDER is unset/disabled the call returns ok=False harmlessly.
     sms_sent = False
     sms_provider = "none"
     sms_error = None
-    if not tg_sent:
+    try:
+        # On Railway: sms_provider.py is at /app/sms_provider.py (api/ is the build root)
+        # On local dev: file is at api/sms_provider.py — fall back if Railway-style fails
         try:
-            # On Railway: sms_provider.py is at /app/sms_provider.py (api/ is the build root)
-            # On local dev: file is at api/sms_provider.py — fall back if Railway-style fails
-            try:
-                from sms_provider import send_otp as _send_otp
-            except ImportError:
-                from api.sms_provider import send_otp as _send_otp
-            sms_result = await _send_otp(phone, code, purpose="device_pair")
-            sms_sent = sms_result.ok and not sms_result.stub
-            sms_provider = sms_result.provider
-            sms_error = sms_result.error
-        except Exception as e:
-            sms_error = f"sms_module_error: {type(e).__name__}: {e}"
+            from sms_provider import send_otp as _send_otp
+        except ImportError:
+            from api.sms_provider import send_otp as _send_otp
+        sms_result = await _send_otp(phone, code, purpose="device_pair")
+        sms_sent = sms_result.ok and not sms_result.stub
+        sms_provider = sms_result.provider
+        sms_error = sms_result.error
+    except Exception as e:
+        sms_error = f"sms_module_error: {type(e).__name__}: {e}"
 
     delivery = "telegram" if tg_sent else ("sms" if sms_sent else "pending")
 
@@ -10830,14 +10832,19 @@ async def device_verify(req: DeviceVerifyReq):
         # Generate signing token (32 bytes url-safe)
         token = secrets.token_urlsafe(32)
 
-        # Upsert device
+        # Upsert device — refresh registered_at + reset last_seen on every verify
+        # so the claim window (~15 min, gated by `(last_seen - registered_at) > 60s`)
+        # reopens for every successful re-pair. Without this, devices that have
+        # been heart-beating cannot be re-claimed (verified bug 2026-04-26 night;
+        # required manual DB UPDATE workaround twice).
         await conn.execute("""
             INSERT INTO devices (device_id, user_id, device_type, signing_token, registered_at, last_seen)
-            VALUES ($1, $2, 'other', $3, NOW(), NOW())
+            VALUES ($1, $2, 'other', $3, NOW(), NULL)
             ON CONFLICT (device_id) DO UPDATE
                 SET user_id = EXCLUDED.user_id,
                     signing_token = EXCLUDED.signing_token,
-                    last_seen = NOW(),
+                    registered_at = NOW(),
+                    last_seen = NULL,
                     is_active = TRUE
         """, req.device_id, user_id, token)
 
