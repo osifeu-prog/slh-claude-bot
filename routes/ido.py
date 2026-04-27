@@ -61,6 +61,180 @@ def set_pool(pool):
     _pool = pool
 
 
+# ── DB init (idempotent, runs at startup AFTER set_pool) ──
+async def init_ido_tables() -> None:
+    """Create all IDO tables + views. Mirror of 07_DB_SCHEMA.sql.
+
+    Safe to run on every boot (CREATE IF NOT EXISTS). Pre-seeds expected
+    milestones so the dashboard renders the milestone list before any
+    contributions arrive. Uses the global _pool set by set_pool().
+    """
+    if _pool is None:
+        raise RuntimeError("init_ido_tables called before set_pool")
+    async with _pool.acquire() as conn:
+        # 1. ido_transactions
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS ido_transactions (
+                id              BIGSERIAL PRIMARY KEY,
+                tx_hash         VARCHAR(66) UNIQUE NOT NULL,
+                wallet_address  VARCHAR(42) NOT NULL,
+                amount_bnb      NUMERIC(36, 18) NOT NULL,
+                amount_ils_at_time NUMERIC(12, 2),
+                bnb_price_ils   NUMERIC(12, 2),
+                block_number    BIGINT,
+                status          VARCHAR(20) NOT NULL DEFAULT 'pending',
+                confirmation_count INT DEFAULT 0,
+                contract_address VARCHAR(42) NOT NULL,
+                tokens_allocated NUMERIC(36, 18),
+                vesting_schedule_id BIGINT,
+                created_at      TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                confirmed_at    TIMESTAMP WITH TIME ZONE,
+                refunded_at     TIMESTAMP WITH TIME ZONE,
+                notes           TEXT
+            )
+        """)
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_ido_tx_wallet ON ido_transactions(wallet_address)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_ido_tx_status ON ido_transactions(status)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_ido_tx_created ON ido_transactions(created_at DESC)")
+
+        # 2. ido_participants
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS ido_participants (
+                id              BIGSERIAL PRIMARY KEY,
+                wallet_address  VARCHAR(42) UNIQUE NOT NULL,
+                total_contributed_bnb NUMERIC(36, 18) DEFAULT 0,
+                total_tokens_allocated NUMERIC(36, 18) DEFAULT 0,
+                contribution_count INT DEFAULT 0,
+                first_contribution_at TIMESTAMP WITH TIME ZONE,
+                last_contribution_at  TIMESTAMP WITH TIME ZONE,
+                sybil_score     INT DEFAULT 0,
+                cluster_id      BIGINT,
+                ofac_flagged    BOOLEAN DEFAULT FALSE,
+                chainabuse_flagged BOOLEAN DEFAULT FALSE,
+                velocity_flagged BOOLEAN DEFAULT FALSE,
+                zuz_score       INT DEFAULT 0,
+                zvk_awarded     INT DEFAULT 0,
+                rep_awarded     INT DEFAULT 0,
+                founder_nft_eligible BOOLEAN DEFAULT FALSE,
+                created_at      TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                updated_at      TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            )
+        """)
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_ido_participants_wallet ON ido_participants(wallet_address)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_ido_participants_total ON ido_participants(total_contributed_bnb DESC)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_ido_participants_sybil ON ido_participants(sybil_score DESC)")
+
+        # 3. ido_milestones (with pre-seed)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS ido_milestones (
+                id              BIGSERIAL PRIMARY KEY,
+                milestone_type  VARCHAR(50) UNIQUE NOT NULL,
+                reached_at      TIMESTAMP WITH TIME ZONE,
+                block_number    BIGINT,
+                details         JSONB,
+                notified_telegram BOOLEAN DEFAULT FALSE,
+                created_at      TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            )
+        """)
+        await conn.execute("""
+            INSERT INTO ido_milestones (milestone_type, details) VALUES
+                ('llc_certified',         '{"target_date": "2026-05-08"}'::jsonb),
+                ('audit_passed',          '{"target_date": "2026-05-12"}'::jsonb),
+                ('ido_started',           '{"target_date": "2026-05-14"}'::jsonb),
+                ('soft_cap_reached',      '{"target_bnb": 20}'::jsonb),
+                ('hard_cap_reached',      '{"target_bnb": 150}'::jsonb),
+                ('ido_ended',             '{"target_date": "2026-06-13"}'::jsonb),
+                ('lp_locked',             '{"lock_duration_days": 365}'::jsonb),
+                ('first_vesting_release', '{"percent": 20}'::jsonb)
+            ON CONFLICT (milestone_type) DO NOTHING
+        """)
+
+        # 4. ido_alerts
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS ido_alerts (
+                id              BIGSERIAL PRIMARY KEY,
+                alert_type      VARCHAR(50) NOT NULL,
+                severity        VARCHAR(20) NOT NULL DEFAULT 'medium',
+                wallet_address  VARCHAR(42),
+                tx_hash         VARCHAR(66),
+                cluster_id      BIGINT,
+                description     TEXT NOT NULL,
+                details         JSONB,
+                auto_action_taken VARCHAR(50),
+                admin_action    VARCHAR(50),
+                admin_action_by VARCHAR(50),
+                admin_action_at TIMESTAMP WITH TIME ZONE,
+                notified_telegram BOOLEAN DEFAULT FALSE,
+                created_at      TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            )
+        """)
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_ido_alerts_severity ON ido_alerts(severity, created_at DESC)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_ido_alerts_wallet ON ido_alerts(wallet_address)")
+
+        # 5. ido_vesting_schedules
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS ido_vesting_schedules (
+                id              BIGSERIAL PRIMARY KEY,
+                participant_id  BIGINT REFERENCES ido_participants(id),
+                wallet_address  VARCHAR(42) NOT NULL,
+                total_tokens    NUMERIC(36, 18) NOT NULL,
+                tge_release_pct NUMERIC(5, 2) DEFAULT 20.00,
+                cycle_release_pct NUMERIC(5, 2) DEFAULT 20.00,
+                cycle_days      INT DEFAULT 30,
+                cycles_total    INT DEFAULT 4,
+                cycles_released INT DEFAULT 0,
+                tokens_released NUMERIC(36, 18) DEFAULT 0,
+                next_release_at TIMESTAMP WITH TIME ZONE,
+                completed       BOOLEAN DEFAULT FALSE,
+                created_at      TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                updated_at      TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            )
+        """)
+
+        # 6. ido_clusters
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS ido_clusters (
+                id              BIGSERIAL PRIMARY KEY,
+                cluster_signature VARCHAR(64) UNIQUE NOT NULL,
+                detection_method VARCHAR(50) NOT NULL,
+                wallet_count    INT DEFAULT 1,
+                total_contributed_bnb NUMERIC(36, 18) DEFAULT 0,
+                risk_score      INT DEFAULT 0,
+                confirmed_sybil BOOLEAN DEFAULT FALSE,
+                notes           TEXT,
+                created_at      TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                updated_at      TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            )
+        """)
+
+        # Views
+        await conn.execute("""
+            CREATE OR REPLACE VIEW ido_dashboard_summary AS
+            SELECT
+                (SELECT COALESCE(SUM(amount_bnb),0) FROM ido_transactions WHERE status = 'confirmed') AS total_raised_bnb,
+                (SELECT COUNT(DISTINCT wallet_address) FROM ido_transactions WHERE status = 'confirmed') AS unique_participants,
+                (SELECT COUNT(*) FROM ido_transactions WHERE status = 'pending') AS pending_txs,
+                (SELECT COUNT(*) FROM ido_alerts WHERE admin_action IS NULL AND severity IN ('high','critical')) AS open_critical_alerts,
+                (SELECT COUNT(*) FROM ido_clusters WHERE confirmed_sybil = TRUE) AS confirmed_sybil_clusters,
+                (SELECT reached_at FROM ido_milestones WHERE milestone_type = 'soft_cap_reached') AS soft_cap_at,
+                (SELECT reached_at FROM ido_milestones WHERE milestone_type = 'hard_cap_reached') AS hard_cap_at
+        """)
+        await conn.execute("""
+            CREATE OR REPLACE VIEW ido_top_contributors AS
+            SELECT
+                wallet_address,
+                CONCAT(SUBSTRING(wallet_address FROM 1 FOR 6), '...', SUBSTRING(wallet_address FROM 39 FOR 4)) AS wallet_short,
+                total_contributed_bnb,
+                contribution_count,
+                sybil_score,
+                first_contribution_at
+            FROM ido_participants
+            WHERE sybil_score < 50
+            ORDER BY total_contributed_bnb DESC
+            LIMIT 10
+        """)
+
+
 # ── auth ──
 _ADMIN_KEYS = {
     k.strip() for k in os.getenv("ADMIN_API_KEYS", "").split(",") if k.strip()

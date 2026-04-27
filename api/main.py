@@ -134,7 +134,7 @@ from routes.esp_events import router as esp_events_router, set_pool as _esp_even
 from routes.campaign_admin import router as campaign_admin_router, set_pool as _campaign_admin_set_pool
 from routes.academia_ugc import router as academia_ugc_router, set_pool as _academia_ugc_set_pool, init_academia_ugc_tables as _init_academia_ugc
 from routes.ambassador_crm import router as ambassador_crm_router, set_pool as _ambassador_crm_set_pool
-from routes.ido import router as ido_router, set_pool as _ido_set_pool
+from routes.ido import router as ido_router, set_pool as _ido_set_pool, init_ido_tables as _init_ido
 from routes.therapists import router as therapists_router, set_pool as _therapists_set_pool
 from routes.device_inventory import router as device_inventory_router, set_pool as _device_inventory_set_pool
 from routes.tasks import router as tasks_router, set_pool as _tasks_set_pool
@@ -427,7 +427,7 @@ async def startup():
                 print(f"[Startup][WARN] set_pool on {setter.__name__} failed: {e!r}")
 
         # Each init isolated — one failure doesn't block the others or healthcheck
-        for init_name, init_coro in (("wellness", _init_wellness), ("threat", _init_threat), ("whatsapp", _init_whatsapp), ("agent_hub", _init_agent_hub), ("academia_ugc", _init_academia_ugc), ("bot_registry", _init_bot_registry), ("admin_rotate", _init_admin_rotate)):
+        for init_name, init_coro in (("wellness", _init_wellness), ("threat", _init_threat), ("whatsapp", _init_whatsapp), ("agent_hub", _init_agent_hub), ("academia_ugc", _init_academia_ugc), ("bot_registry", _init_bot_registry), ("admin_rotate", _init_admin_rotate), ("ido", _init_ido)):
             try:
                 await asyncio.wait_for(init_coro(), timeout=15.0)
                 print(f"[Startup] {init_name} tables ready")
