@@ -14,7 +14,15 @@ from datetime import datetime
 # ====================
 # CONFIGURATION
 # ====================
-TOKEN = "8530795944:AAFXDx-vWZPpiXTlfsv5izUayJ4OpLLq3Ls"
+# Token can be overridden via env (TELEGRAM_TOKEN or AIRDROP_BOT_TOKEN) so
+# rotation doesn't require a code change. The hardcoded fallback below is
+# the legacy token from before rotation and is currently REVOKED — set the
+# fresh token via env.
+TOKEN = (
+    os.getenv("TELEGRAM_TOKEN")
+    or os.getenv("AIRDROP_BOT_TOKEN")
+    or "8530795944:AAFXDx-vWZPpiXTlfsv5izUayJ4OpLLq3Ls"
+)
 API_URL = "https://successful-fulfillment-production.up.railway.app"
 ADMIN_ID = "224223270"  # 👈 זה המזהה הנכון שלך
 TON_WALLET = "UQCr743gEr_nqV_0SBkSp3CtYS_15R3LDLBvLmKeEv7XdGvp"
