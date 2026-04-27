@@ -203,6 +203,9 @@ services:
       BSC_RPC_URL: ${BSC_RPC_URL:-https://bsc-dataseed.binance.org/}
       RAILWAY_DATABASE_URL: ${RAILWAY_DATABASE_URL}
       RAILWAY_REDIS_URL: ${RAILWAY_REDIS_URL}
+      # Therapists Network — Phase 4 deep-link (must match slh-api Railway env)
+      TELEGRAM_LINK_SECRET: ${TELEGRAM_LINK_SECRET:-}
+      SLH_THERAPISTS_API: ${SLH_THERAPISTS_API:-https://slh-api-production.up.railway.app/api/therapists/telegram/link}
 
   campaign-bot:
     build:

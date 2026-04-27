@@ -6,4 +6,9 @@ COPY airdrop/ .
 COPY shared/ /app/shared/
 ENV PYTHONPATH="/app:/app/shared"
 ENV PYTHONIOENCODING=utf-8
-CMD ["python", "-c", "from app.bot_server import main; main()"]
+# Switched to FINAL_BOT.py (480-line standalone bot with therapist deep-link
+# support) until app/bot_server.py is repaired. The latter has 8400+ corrupted
+# UTF-8 bytes from commit a799300 that prevent Python from parsing it.
+# Restore the original CMD once bot_server.py is fixed:
+#   CMD ["python", "-c", "from app.bot_server import main; main()"]
+CMD ["python", "FINAL_BOT.py"]
