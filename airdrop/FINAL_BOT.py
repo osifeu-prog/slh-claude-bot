@@ -448,13 +448,57 @@ class AirdropBot:
         return False
 
 # ====================
+# BOT REGISTRY HEARTBEAT
+# ====================
+def _heartbeat_loop():
+    """Background thread: register this bot in /api/bots/list every 60s.
+    Lets /admin/bot-registry.html show this bot as alive.
+    """
+    import threading, time as _time
+    bot_secret = os.getenv("BOT_SYNC_SECRET", "")
+    if not bot_secret:
+        logger.info("[heartbeat] BOT_SYNC_SECRET not set — skipping registry heartbeat")
+        return
+    while True:
+        try:
+            r = requests.post(
+                f"{SLH_API_BASE}/api/bots/heartbeat",
+                json={
+                    "bot_name": "slh-air-bot",
+                    "display_name": "SLH Companion (@SLH_AIR_bot)",
+                    "username": "SLH_AIR_bot",
+                    "version": "2026.04.28",
+                    "metadata": {
+                        "container": "slh-airdrop",
+                        "polling": True,
+                        "admin_id": str(ADMIN_ID),
+                    },
+                },
+                headers={"X-Bot-Secret": bot_secret},
+                timeout=8,
+            )
+            if r.status_code != 200:
+                logger.debug(f"[heartbeat] {r.status_code}: {r.text[:80]}")
+        except Exception as e:
+            logger.debug(f"[heartbeat] failed: {e}")
+        _time.sleep(60)
+
+
+def _start_heartbeat_thread():
+    import threading
+    t = threading.Thread(target=_heartbeat_loop, daemon=True, name="bot-registry-hb")
+    t.start()
+    logger.info("[heartbeat] registry thread started (60s interval)")
+
+
+# ====================
 # MAIN BOT LOOP
 # ====================
 def main():
     """לולאת הבוט הראשית"""
     bot = AirdropBot()
     offset = 0
-    
+
     logger.info("=" * 50)
     logger.info("🤖 SLH Companion Bot — synced with slh-nft.com")
     logger.info(f"👤 ADMIN_ID: {ADMIN_ID}")
@@ -462,6 +506,8 @@ def main():
     logger.info(f"🩺 Therapists API: {SLH_THERAPISTS_API}")
     logger.info(f"🔐 TELEGRAM_LINK_SECRET set: {bool(TELEGRAM_LINK_SECRET)}")
     logger.info("=" * 50)
+
+    _start_heartbeat_thread()
     
     while True:
         try:
