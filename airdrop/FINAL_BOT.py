@@ -479,11 +479,27 @@ def main():
                     if "message" in update:
                         msg = update["message"]
                         chat_id = msg["chat"]["id"]
-                        text = msg.get("text", "").strip()
+                        raw_text = msg.get("text", "").strip()
                         name = msg["chat"].get("first_name", "משתמש")
                         username = msg["chat"].get("username", "")
-                        
-                        logger.info(f"📨 {name}: {text}")
+
+                        logger.info(f"📨 {name}: {raw_text!r}")
+
+                        # If user pasted multiple commands at once (e.g. "/bots\n/swarm\n/help"),
+                        # process the FIRST recognizable line and ignore the rest. This stops
+                        # the whole pasted blob from being treated as one unknown command.
+                        text = raw_text
+                        if "\n" in raw_text:
+                            for line in raw_text.split("\n"):
+                                stripped = line.strip()
+                                if stripped.startswith("/"):
+                                    text = stripped
+                                    logger.info(f"   → multi-line: handling first command {text!r}")
+                                    break
+                        # Strip trailing arguments for plain command match (keeps /start <arg> intact below)
+                        if text.startswith("/") and " " in text and not text.startswith("/start "):
+                            head = text.split(maxsplit=1)[0]
+                            text = head
                         
                         # פקודות מיוחדות
                         if text == "/start" or text.startswith("/start "):
