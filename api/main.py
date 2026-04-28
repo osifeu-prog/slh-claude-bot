@@ -7674,7 +7674,9 @@ async def list_all_member_cards(limit: int = Query(default=50, ge=1, le=500)):
 
 P2P_VALID_TOKENS = {"SLH", "ZVK", "MNH"}
 P2P_VALID_CURRENCIES = {"ILS", "USD"}
-P2P_VALID_PAYMENT_METHODS = {"Bit", "PayBox", "Bank", "MNH", "BNB"}
+# 2026-04-28: Bit/PayBox removed — Osif has no such payment infrastructure.
+# Internal-token transfers (MNH) are the only on-platform free option.
+P2P_VALID_PAYMENT_METHODS = {"USDT-TON", "TON", "MNH", "BNB"}
 P2P_VALID_STATUSES = {"active", "filled", "cancelled"}
 
 
