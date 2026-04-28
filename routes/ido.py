@@ -411,6 +411,77 @@ async def get_status():
         return stub
 
 
+@router.get("/stats")
+async def get_stats():
+    """Public — flat stats blob suitable for marketing widgets, bots, Telegram.
+
+    Distilled view of /status + /milestones + /top-contributors. Always 200.
+    Same data, fewer hops for the consumer.
+    """
+    from datetime import datetime as _dt, timezone as _tz
+    # Reuse /status (already best-effort + 200-always)
+    try:
+        s = await get_status()
+    except Exception:
+        s = {}
+    # Days to launch target (set in milestones if defined, else hardcoded)
+    target_iso = None
+    try:
+        ms = s.get("milestones", {}) or {}
+        ido_started = ms.get("ido_started", {})
+        target = ido_started.get("target", {}) or {}
+        target_iso = target.get("target_date")
+    except Exception:
+        pass
+    days_to_launch = None
+    if target_iso:
+        try:
+            target_dt = _dt.fromisoformat(target_iso.replace("Z", "+00:00"))
+            if target_dt.tzinfo is None:
+                target_dt = target_dt.replace(tzinfo=_tz.utc)
+            delta = target_dt - _dt.now(_tz.utc)
+            days_to_launch = delta.days
+        except Exception:
+            pass
+
+    # Top 3 contributors — best-effort, never 500
+    top_3 = []
+    try:
+        if _pool:
+            async with _pool.acquire() as conn:
+                rows = await conn.fetch(
+                    "SELECT wallet_short, total_contributed_bnb, contribution_count "
+                    "FROM ido_top_contributors LIMIT 3"
+                )
+                for i, r in enumerate(rows):
+                    top_3.append({
+                        "rank": i + 1,
+                        "wallet_short": r["wallet_short"],
+                        "total_bnb": float(r["total_contributed_bnb"] or 0),
+                        "tx_count": int(r["contribution_count"] or 0),
+                    })
+    except Exception:
+        pass
+
+    return {
+        "raised_bnb": s.get("total_raised_bnb", 0.0),
+        "soft_cap_bnb": s.get("soft_cap_bnb", 20),
+        "hard_cap_bnb": s.get("hard_cap_bnb", 150),
+        "soft_pct": s.get("soft_cap_pct", 0.0),
+        "hard_pct": s.get("hard_cap_pct", 0.0),
+        "soft_met": s.get("soft_cap_met", False),
+        "hard_met": s.get("hard_cap_met", False),
+        "participants": s.get("unique_participants", 0),
+        "confirmed_tx": s.get("confirmed_tx_count", 0),
+        "days_to_launch": days_to_launch,
+        "phase": s.get("status_note", "pre-launch"),
+        "top_3": top_3,
+        "treasury_safe": "0x9DD8aF7Ac0f601CD473422311b2942DAE9D0BD09",
+        "token_address": "0xACb0A09414CEA1C879c67bB7A877E4e19480f022",
+        "as_of": _dt.now(_tz.utc).isoformat(),
+    }
+
+
 @router.get("/top-contributors")
 async def get_top_contributors():
     """Public — top 10 contributors with anonymized wallets.
