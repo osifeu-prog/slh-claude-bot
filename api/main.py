@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 import os
 from fastapi import FastAPI, Body
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,16 +17,22 @@ BSC_RPC = "https://bsc-dataseed.binance.org/"
 app = FastAPI(title="SLH Core API", version="2.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-@app.get("/health")
-async def health():
+async def _check_db():
     try:
         conn = await asyncpg.connect(DB_URL)
         await conn.execute("SELECT 1")
         await conn.close()
-        db_status = "ok"
+        return "ok"
     except Exception as e:
-        db_status = f"error: {e}"
-    return {"status": "ok", "db": db_status}
+        return f"error: {e}"
+
+@app.get("/health")
+async def health():
+    return {"status": "ok", "db": await _check_db()}
+
+@app.get("/api/health")
+async def health_api():
+    return {"status": "ok", "db": await _check_db()}
 
 @app.post("/api/connect/wallet")
 async def connect_wallet(data: dict = Body(...)):
