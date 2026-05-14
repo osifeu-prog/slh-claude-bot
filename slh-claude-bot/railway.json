@@ -1,0 +1,13 @@
+﻿{
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "Dockerfile",
+    "rootDirectory": "slh-claude-bot"
+  },
+  "deploy": {
+    "startCommand": "",
+    "healthcheckPath": "",
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10
+  }
+}
