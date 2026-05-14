@@ -12,7 +12,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(HERE, ".env"))
 
 import httpx
-from aiogram import Bot, Dispatcher, F
+from aiogram import types, Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.filters import Command
@@ -713,7 +713,7 @@ async def on_text(msg: Message) -> None:
 
 
 @dp.message(Command("status"))
-async def status_handler(m: types.Message):
+async def status_handler(msg: Message):
     await cmd_status(m)
 
 @dp.message(Command("system"))
@@ -779,5 +779,8 @@ async def main() -> None:
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+
+
 
 
