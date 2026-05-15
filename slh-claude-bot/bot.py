@@ -7,6 +7,7 @@ import asyncio
 import asyncpg
 DB_URL = os.getenv("DATABASE_URL", "")
 import logging
+from json_logging import JSONFormatter
 import os
 from dotenv import load_dotenv
 
