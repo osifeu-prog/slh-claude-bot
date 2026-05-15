@@ -4,6 +4,8 @@
 Guards with Telegram ID allowlist. Persists conversation per chat.
 """
 import asyncio
+import asyncpg
+DB_URL = os.getenv("DATABASE_URL", "")
 import logging
 import os
 from dotenv import load_dotenv
@@ -762,6 +764,51 @@ async def premium_cmd(msg: Message) -> None:
         return
     await msg.answer("?? *???? ???????*\n\n?? ????? ???\n?? ???????\n?? ????? ??????\n\n??????: /pay")
 
+
+async def save_user(user_id: int, username: str, full_name: str):
+    try:
+        conn = await asyncpg.connect(DB_URL)
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                user_id BIGINT PRIMARY KEY,
+                username TEXT,
+                full_name TEXT,
+                first_seen TIMESTAMP DEFAULT NOW(),
+                last_seen TIMESTAMP DEFAULT NOW(),
+                is_premium BOOLEAN DEFAULT FALSE
+            )
+        ''')
+        await conn.execute('''
+            INSERT INTO users (user_id, username, full_name, last_seen)
+            VALUES (
+@dp.message(Command("contact"))
+async def contact_cmd(msg: Message) -> None:
+    await msg.answer(
+        "?? *????? ??? ?? Osif Ungar*\n\n"
+        "• ?????: @OsifUngar\n"
+        "• ????: osif.e.u@gmail.com\n"
+        "• ???: https://slh-nft.com\n\n"
+        "??? ????? ?????? ???? ?????."
+    )
+
+async def main(), $2, $3, NOW())
+            ON CONFLICT (user_id) DO UPDATE SET last_seen = NOW()
+        ''', user_id, username, full_name)
+        await conn.close()
+    except Exception as e:
+        log.warning(f"save_user failed: {e}")
+
+
+@dp.message(Command("contact"))
+async def contact_cmd(msg: Message) -> None:
+    await msg.answer(
+        "?? *????? ??? ?? Osif Ungar*\n\n"
+        "• ?????: @OsifUngar\n"
+        "• ????: osif.e.u@gmail.com\n"
+        "• ???: https://slh-nft.com\n\n"
+        "??? ????? ?????? ???? ?????."
+    )
+
 async def main() -> None:
     await session.init_db()
     await subscriptions.init_db()
@@ -813,6 +860,8 @@ async def main() -> None:
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+
 
 
 
