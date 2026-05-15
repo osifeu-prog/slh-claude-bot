@@ -16,7 +16,7 @@ from aiogram import types, Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.types import Message, PreCheckoutQuery
 
 import auth
 from admin_handlers import cmd_status, cmd_system, cmd_logs, cmd_balance
