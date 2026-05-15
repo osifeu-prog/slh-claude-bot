@@ -738,6 +738,30 @@ async def successful_payment_handler(msg: Message) -> None:
     await msg.answer("? ???? ?? ??????! ??? ????? Premium.")
     # ????? ????? Premium ?-DB
 
+
+@dp.message(Command("pay"))
+async def pay_cmd(msg: Message) -> None:
+    if not auth.is_authorized(msg.from_user.id):
+        await msg.answer(auth.unauthorized_reply_he(msg.from_user.id))
+        return
+    await bot.send_invoice(
+        chat_id=msg.chat.id,
+        title="SLH Premium",
+        description="???? ?????? ????????, ???????, ???????.",
+        payload="premium_monthly",
+        provider_token="",
+        currency="XTR",
+        prices=[{"label": "SLH Premium", "amount": 5000}],
+        start_parameter="premium"
+    )
+
+@dp.message(Command("premium"))
+async def premium_cmd(msg: Message) -> None:
+    if not auth.is_authorized(msg.from_user.id):
+        await msg.answer(auth.unauthorized_reply_he(msg.from_user.id))
+        return
+    await msg.answer("?? *???? ???????*\n\n?? ????? ???\n?? ???????\n?? ????? ??????\n\n??????: /pay")
+
 async def main() -> None:
     await session.init_db()
     await subscriptions.init_db()
@@ -789,6 +813,7 @@ async def main() -> None:
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
 
