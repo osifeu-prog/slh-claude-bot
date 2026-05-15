@@ -1,7 +1,6 @@
-{
+﻿{
   "build": {
-    "builder": "DOCKERFILE",
-    "dockerfilePath": "slh-claude-bot/Dockerfile"
+    "builder": "DOCKERFILE"
   },
   "deploy": {
     "startCommand": "",
