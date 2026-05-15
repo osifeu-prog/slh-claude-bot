@@ -791,7 +791,15 @@ async def contact_cmd(msg: Message) -> None:
         "??? ????? ?????? ???? ?????."
     )
 
-async def main(), $2, $3, NOW())
+import health_server as _hsrv
+
+async def main():
+    await asyncio.gather(
+        _hsrv.run_health_server(),
+        _original_main()
+    )
+
+async def _original_main():, $2, $3, NOW())
             ON CONFLICT (user_id) DO UPDATE SET last_seen = NOW()
         ''', user_id, username, full_name)
         await conn.close()
@@ -809,7 +817,15 @@ async def contact_cmd(msg: Message) -> None:
         "??? ????? ?????? ???? ?????."
     )
 
-async def main() -> None:
+import health_server as _hsrv
+
+async def main():
+    await asyncio.gather(
+        _hsrv.run_health_server(),
+        _original_main()
+    )
+
+async def _original_main(): -> None:
     await session.init_db()
     await subscriptions.init_db()
     # Wire optional panels (non-critical — won't block startup)
