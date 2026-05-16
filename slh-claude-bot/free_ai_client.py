@@ -2,7 +2,7 @@
 
 Provider chain (first available key wins):
   1. Groq  → llama-3.3-70b-versatile  (30 RPM / 14,400 RPD free tier)
-  2. Gemini → gemini-1.5-flash          (15 RPM / 1 M TPD free tier)
+  2. Gemini → gemini-2.0-flash          (15 RPM / 1 M TPD free tier)
   3. Railway API → /api/ai/chat         (internal fallback, uses Groq/Gemini on server)
   4. Built-in local response             (always works, no key needed)
 
@@ -32,7 +32,7 @@ TIMEOUT        = float(os.getenv("SLH_AI_TIMEOUT", "30"))
 
 GROQ_MODEL_PRIMARY  = "llama-3.3-70b-versatile"
 GROQ_MODEL_FALLBACK = "llama-3.1-8b-instant"
-GEMINI_MODEL        = "gemini-1.5-flash"
+GEMINI_MODEL        = "gemini-2.0-flash"
 
 SYSTEM_PROMPT = (
     "אתה SLH Spark AI — עוזר אישי חכם של אוסיף ומשתמשי SLH Spark.\n"
