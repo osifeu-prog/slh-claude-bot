@@ -1,4 +1,4 @@
-﻿# ============================================================
+# ============================================================
 # SLH ECOSYSTEM - Unified Docker Compose
 # All Telegram bots + shared infrastructure
 # SECURE MODE: use only external --env-file, do not rely on local .env
@@ -203,10 +203,10 @@ services:
       BSC_RPC_URL: ${BSC_RPC_URL:-https://bsc-dataseed.binance.org/}
       RAILWAY_DATABASE_URL: ${RAILWAY_DATABASE_URL}
       RAILWAY_REDIS_URL: ${RAILWAY_REDIS_URL}
-      # Therapists Network — Phase 4 deep-link (must match slh-api Railway env)
+      # Therapists Network � Phase 4 deep-link (must match slh-api Railway env)
       TELEGRAM_LINK_SECRET: ${TELEGRAM_LINK_SECRET:-}
       SLH_THERAPISTS_API: ${SLH_THERAPISTS_API:-https://slh-api-production.up.railway.app/api/therapists/telegram/link}
-      # Bot ↔ Website unification: shared secret for /api/auth/bot-sync
+      # Bot ? Website unification: shared secret for /api/auth/bot-sync
       # so every /start auto-creates / refreshes web_users row.
       BOT_SYNC_SECRET: ${BOT_SYNC_SECRET:-}
       SLH_API_URL: ${SLH_API_URL:-https://slh-api-production.up.railway.app}
@@ -273,7 +273,7 @@ services:
       BOT_TOKEN: ${SLH_TON_TOKEN}
       BOT_KEY: slh_ton
       BOT_DISPLAY_NAME: "SLH TON"
-      BOT_DESCRIPTION: "ארנק TON והעברות"
+      BOT_DESCRIPTION: "???? TON ???????"
       PRICE_ILS: "79"
       PRICE_TON: "4.0"
       DATABASE_URL: postgresql://postgres:${DB_PASSWORD:-slh_secure_2026}@postgres:5432/slh_main
@@ -296,7 +296,7 @@ services:
       BOT_TOKEN: ${SLH_LEDGER_TOKEN}
       BOT_KEY: ledger
       BOT_DISPLAY_NAME: "SLH Ledger"
-      BOT_DESCRIPTION: "ניהול פיננסי ומעקב הוצאות"
+      BOT_DESCRIPTION: "????? ?????? ????? ??????"
       PRICE_ILS: "49"
       PRICE_TON: "2.5"
       DATABASE_URL: postgresql://postgres:${DB_PASSWORD:-slh_secure_2026}@postgres:5432/slh_main
@@ -347,7 +347,7 @@ services:
       BOT_TOKEN: ${CHANCE_PAIS_TOKEN}
       BOT_KEY: chance
       BOT_DISPLAY_NAME: "Chance Pais"
-      BOT_DESCRIPTION: "הגרלות + משחקי מזל"
+      BOT_DESCRIPTION: "?????? + ????? ???"
       PRICE_ILS: "19"
       PRICE_TON: "1.0"
       DATABASE_URL: postgresql://postgres:${DB_PASSWORD:-slh_secure_2026}@postgres:5432/slh_main
@@ -477,7 +477,7 @@ services:
       ADMIN_USER_ID: ${ADMIN_USER_ID:-224223270}
       COORDINATION_GROUP_CHAT_ID: ${COORDINATION_GROUP_CHAT_ID:-}
 
-  # Telegram-native executor bot — @SLH_Claude_bot
+  # Telegram-native executor bot � @SLH_Claude_bot
   # Bridges Osif's phone to the SLH workspace via Anthropic Claude.
   claude-bot:
     build:
@@ -496,7 +496,7 @@ services:
     # bot.py was COPY'd into /app by the Dockerfile; run it from there, but keep /workspace as cwd
     command: ["python", "/app/bot.py"]
 
-  # @WEWORK_teamviwer_bot re-purposed as SLH Academy — real /buy flow + payments
+  # @WEWORK_teamviwer_bot re-purposed as SLH Academy � real /buy flow + payments
   academia-bot:
     build:
       # Build from repo root so shared/ is in context. Dockerfile path is
