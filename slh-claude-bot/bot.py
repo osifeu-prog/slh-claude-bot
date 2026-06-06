@@ -86,8 +86,6 @@ async def _coord_ping(msg) -> None:
 
 async def _coord_health_handler(msg) -> None:
     try:
-        await msg.answer("⚠️ Health check only on Railway")
-        return
         await msg.reply(
             f"[OK] API: {h.get('status','?')} · DB: {h.get('db','?')} · v{h.get('version','?')}"
         )
@@ -199,8 +197,7 @@ async def cmd_health(msg: Message) -> None:
         await msg.answer(auth.unauthorized_reply_he(msg.from_user.id))
         return
     try:
-        await msg.answer("⚠️ Health check only on Railway")
-        return
+        h = await _http_get_json("/api/health")
         api_ok = h.get("status") == "ok" or h.get("api") == "ok"
         db = h.get("db") or (h.get("checks") or {}).get("db") or "unknown"
         lines = [
@@ -224,8 +221,6 @@ async def cmd_price(msg: Message) -> None:
     if not auth.is_authorized(msg.from_user.id):
         await msg.answer(auth.unauthorized_reply_he(msg.from_user.id))
         return
-    await msg.answer("?? Price service only available on Railway")
-    return
 async def cmd_price(msg: Message) -> None:
     if not auth.is_authorized(msg.from_user.id):
         await msg.answer(auth.unauthorized_reply_he(msg.from_user.id))
@@ -259,8 +254,6 @@ async def cmd_devices(msg: Message) -> None:
     if not auth.is_authorized(msg.from_user.id):
         await msg.answer(auth.unauthorized_reply_he(msg.from_user.id))
         return
-    await msg.answer("?? Devices info only available on Railway")
-    return
 async def cmd_devices(msg: Message) -> None:
     if not auth.is_authorized(msg.from_user.id):
         await msg.answer(auth.unauthorized_reply_he(msg.from_user.id))
@@ -311,8 +304,6 @@ async def cmd_control(msg: Message) -> None:
 
     # 1. API health
     try:
-        await msg.answer("⚠️ Health check only on Railway")
-        return
         api_ok = h.get("status") == "ok"
         db_ok = h.get("db") == "connected"
         sections.append(
@@ -539,8 +530,6 @@ async def cmd_ps(msg: Message) -> None:
     if not auth.is_authorized(msg.from_user.id):
         await msg.answer(auth.unauthorized_reply_he(msg.from_user.id))
         return
-    await msg.answer("?? Docker not available  use Railway Dashboard")
-    return
 async def cmd_ps(msg: Message) -> None:
     if not auth.is_authorized(msg.from_user.id):
         await msg.answer(auth.unauthorized_reply_he(msg.from_user.id))
@@ -588,8 +577,6 @@ async def cmd_logs(msg: Message) -> None:
     if not auth.is_authorized(msg.from_user.id):
         await msg.answer(auth.unauthorized_reply_he(msg.from_user.id))
         return
-    await msg.answer("?? Logs not available  check Railway Dashboard")
-    return
 async def cmd_logs(msg: Message) -> None:
     if not auth.is_authorized(msg.from_user.id):
         await msg.answer(auth.unauthorized_reply_he(msg.from_user.id))
@@ -603,8 +590,6 @@ async def cmd_logs(msg: Message) -> None:
     if not name.startswith(("slh-", "slh_")):
         await msg.answer("רק containers עם prefix `slh-` מותרים.")
         return
-    await msg.answer("⚠️ Logs not available  check Railway Dashboard")
-    return
     await msg.answer(f"*logs {name}:*\n```\n{out[-3500:]}\n```")
 
 
@@ -633,8 +618,7 @@ async def cmd_git(msg: Message) -> None:
         out = _run_cmd(f"cd {repo} && git branch --show-current", timeout=5)
     else:
         # -uno = no untracked (workspace has 100s of untracked backup files)
-        await msg.answer("⚠️ Git status not available locally")
-        return
+        out = _run_cmd(f"cd {repo} && git status --short -uno", timeout=10)
     repo_short = "website" if "website" in repo else "main"
     await msg.answer(f"*git {subcmd} @ `{repo_short}`:*\n```\n{out[:3500]}\n```")
 
@@ -644,8 +628,6 @@ async def cmd_bots(msg: Message) -> None:
     if not auth.is_authorized(msg.from_user.id):
         await msg.answer(auth.unauthorized_reply_he(msg.from_user.id))
         return
-    await msg.answer("?? Bot fleet info only available on Railway")
-    return
 async def cmd_bots(msg: Message) -> None:
     if not auth.is_authorized(msg.from_user.id):
         await msg.answer(auth.unauthorized_reply_he(msg.from_user.id))
@@ -761,8 +743,6 @@ async def cmd_logs(msg: Message) -> None:
     if not auth.is_authorized(msg.from_user.id):
         await msg.answer(auth.unauthorized_reply_he(msg.from_user.id))
         return
-    await msg.answer("?? Logs not available  check Railway Dashboard")
-    return
 async def logs_handler(m: types.Message):
     await cmd_logs(m)
 
@@ -828,6 +808,38 @@ async def main() -> None:
         )
     handlers.register(dp)
     await dp.start_polling(bot)
+
+
+@dp.message(Command("db"))
+async def cmd_db(msg: Message) -> None:
+    if not auth.is_authorized(msg.from_user.id):
+        await msg.answer(auth.unauthorized_reply_he(msg.from_user.id))
+        return
+    try:
+        import asyncpg as _pg
+        conn = await _pg.connect(os.getenv("DATABASE_URL"))
+        tables = [
+            ("premium_users", "Premium"),
+            ("token_balances", "Token Balances"),
+            ("wallets", "Wallets"),
+            ("web_users", "Web Users"),
+            ("referrals", "Referrals"),
+            ("broadcast_log", "Broadcasts"),
+            ("ido_participants", "IDO"),
+            ("users", "Users"),
+        ]
+        lines = ["SLH Database Status", ""]
+        for table, label in tables:
+            try:
+                count = await conn.fetchval(f"SELECT COUNT(*) FROM {table}")
+                icon = "+" if count > 0 else "-"
+                lines.append(f"{icon} {label}: {count}")
+            except:
+                lines.append(f"? {label}: error")
+        await conn.close()
+        await msg.answer("\n".join(lines))
+    except Exception as e:
+        await msg.answer(f"DB Error: {e}")
 
 
 if __name__ == "__main__":
