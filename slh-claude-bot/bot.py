@@ -773,6 +773,30 @@ async def cmd_status_new(msg: Message) -> None:
         await msg.answer(f"Error {e}", parse_mode=None)
 
 
+@dp.message(Command("investors"))
+async def cmd_investors(msg: Message) -> None:
+    if not auth.is_authorized(msg.from_user.id):
+        await msg.answer(auth.unauthorized_reply_he(msg.from_user.id))
+        return
+    try:
+        import asyncpg as _pg
+        conn = await _pg.connect(os.getenv("DATABASE_URL"))
+        rows = await conn.fetch("SELECT partner_name, partner_handle, amount_usd, status FROM launch_contributions ORDER BY amount_usd DESC")
+        total = sum(float(r["amount_usd"]) for r in rows if r["status"] != "cancelled")
+        lines = ["SLH Investors Report"]
+        for r in rows:
+            s = r["status"]
+            icon = "OK" if s == "verified" else ("WAIT" if s == "pending" else "NO")
+            handle = r["partner_handle"] or ""
+            name = r["partner_name"] or ""
+            lines.append(f"{icon} {name} {handle} usd{float(r['amount_usd']):.0f} {s}")
+        lines.append(f"Total: usd{total:.2f}")
+        await conn.close()
+        await msg.answer("\n".join(lines), parse_mode=None)
+    except Exception as e:
+        await msg.answer(f"Error {e}", parse_mode=None)
+
+
 async def main() -> None:
     await session.init_db()
     await subscriptions.init_db()
@@ -853,28 +877,6 @@ async def cmd_db(msg: Message) -> None:
         await msg.answer("\n".join(lines))
     except Exception as e:
         await msg.answer(f"DB Error: {e}")
-
-
-@dp.message(Command("investors"))
-async def cmd_investors(msg: Message) -> None:
-    if not auth.is_authorized(msg.from_user.id):
-        await msg.answer(auth.unauthorized_reply_he(msg.from_user.id))
-        return
-    try:
-        import asyncpg as _pg
-        conn = await _pg.connect(os.getenv("DATABASE_URL"))
-        rows = await conn.fetch("SELECT partner_name, partner_handle, amount_usd, status FROM launch_contributions ORDER BY amount_usd DESC")
-        total = sum(float(r["amount_usd"]) for r in rows if r["status"] != "cancelled")
-        lines = ["SLH Investors", ""]
-        for r in rows:
-            icon = "+" if r["status"] == "verified" else ("?" if r["status"] == "pending" else "-")
-            handle = r["partner_handle"] or ""
-            lines.append(f"{icon} {r['partner_name']} {handle} ${float(r['amount_usd']):.0f} [{r['status']}]")
-        lines.append(f"Total: ${total:.2f}")
-        await conn.close()
-        await msg.answer("\n".join(lines))
-    except Exception as e:
-        await msg.answer(f"Error: {e}")
 
 
 if __name__ == "__main__":
