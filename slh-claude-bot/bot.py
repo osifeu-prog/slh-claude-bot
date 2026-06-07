@@ -857,7 +857,7 @@ async def cmd_investors(msg: Message) -> None:
             icon = "+" if r["status"] == "verified" else ("?" if r["status"] == "pending" else "-")
             handle = r["partner_handle"] or ""
             lines.append(f"{icon} {r['partner_name']} {handle} ${float(r['amount_usd']):.0f} [{r['status']}]")
-        lines.append(f"\nTotal: ${total:.2f}")
+        lines.append(f"Total: ${total:.2f}")
         await conn.close()
         await msg.answer("\n".join(lines))
     except Exception as e:
