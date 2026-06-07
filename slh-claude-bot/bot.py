@@ -450,26 +450,6 @@ async def cmd_task(msg: Message) -> None:
         await msg.answer(f"שגיאה: `{_escape_md(str(e))}`")
 
 
-@dp.message(Command("status"))
-async def cmd_status(msg: Message) -> None:
-    if not auth.is_authorized(msg.from_user.id):
-        await msg.answer(auth.unauthorized_reply_he(msg.from_user.id))
-        return
-    await msg.answer("מבצע בדיקת מצב מהירה...")
-    try:
-        reply, new_msgs = await ai_client.converse(
-            history=[],
-            user_text="בצע בדיקה מהירה: 1) curl ל-/api/health של Railway, 2) git status בשני ה-repos (D:\\SLH_ECOSYSTEM ו-D:\\SLH_ECOSYSTEM\\website), 3) docker ps. תן סיכום של 3-5 שורות בעברית.",
-        )
-        for msg_part in new_msgs:
-            await session.append(msg.chat.id, msg_part["role"], msg_part["content"])
-        for chunk in _chunks(reply):
-            await msg.answer(chunk)
-    except Exception as e:
-        log.exception("status failed")
-        await msg.answer(f"שגיאה: `{type(e).__name__}: {e}`")
-
-
 @dp.message(Command("clear"))
 async def cmd_clear(msg: Message) -> None:
     if not auth.is_authorized(msg.from_user.id):
@@ -730,9 +710,6 @@ async def on_text(msg: Message) -> None:
 
 
 
-@dp.message(Command("status"))
-async def status_handler(msg: Message):
-    await cmd_status(m)
 
 @dp.message(Command("system"))
 async def system_handler(m: types.Message):
@@ -761,7 +738,7 @@ async def successful_payment_handler(msg: Message) -> None:
     # ????? ????? Premium ?-DB
 
 @dp.message(Command("status"))
-async def cmd_status(msg: Message) -> None:
+async def cmd_status_new(msg: Message) -> None:
     if not auth.is_authorized(msg.from_user.id):
         return
     try:
