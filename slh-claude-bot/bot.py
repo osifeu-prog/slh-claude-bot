@@ -866,6 +866,12 @@ async def cmd_investors(msg: Message) -> None:
         await msg.answer(f"Error {e}", parse_mode=None)
 
 
+@dp.message(Command("chatid"))
+async def cmd_chatid(msg: Message) -> None:
+    chat = msg.chat
+    await msg.answer(f"chat_id: {chat.id}\ntitle: {chat.title or chat.first_name}\ntype: {chat.type}")
+
+
 if __name__ == "__main__":
     asyncio.run(main())
 
