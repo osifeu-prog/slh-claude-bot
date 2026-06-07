@@ -760,6 +760,42 @@ async def successful_payment_handler(msg: Message) -> None:
     await msg.answer("? ???? ?? ??????! ??? ????? Premium.")
     # ????? ????? Premium ?-DB
 
+@dp.message(Command("status"))
+async def cmd_status(msg: Message) -> None:
+    if not auth.is_authorized(msg.from_user.id):
+        return
+    try:
+        import asyncpg as _pg
+        conn = await _pg.connect(os.getenv("DATABASE_URL"))
+        premium = await conn.fetchval("SELECT COUNT(*) FROM premium_users")
+        balances = await conn.fetchval("SELECT COUNT(*) FROM token_balances")
+        wallets = await conn.fetchval("SELECT COUNT(*) FROM wallets")
+        web_users = await conn.fetchval("SELECT COUNT(*) FROM web_users")
+        inv_ok = await conn.fetchval("SELECT COUNT(*) FROM launch_contributions WHERE status='verified'")
+        inv_wait = await conn.fetchval("SELECT COUNT(*) FROM launch_contributions WHERE status='pending'")
+        raised = await conn.fetchval("SELECT SUM(amount_usd) FROM launch_contributions WHERE status!='cancelled'")
+        await conn.close()
+        lines = [
+            "SLH Ecosystem Status",
+            "",
+            "DATABASE",
+            f"Premium: {premium}",
+            f"Token Balances: {balances}",
+            f"Wallets: {wallets}",
+            f"Web Users: {web_users}",
+            "",
+            "INVESTORS",
+            f"Verified: {inv_ok}",
+            f"Pending: {inv_wait}",
+            f"Raised: usd{float(raised or 0):.2f}",
+            "",
+            "BOT: Railway OK",
+        ]
+        await msg.answer("\n".join(lines), parse_mode=None)
+    except Exception as e:
+        await msg.answer(f"Error {e}", parse_mode=None)
+
+
 async def main() -> None:
     await session.init_db()
     await subscriptions.init_db()
@@ -852,25 +888,16 @@ async def cmd_investors(msg: Message) -> None:
         conn = await _pg.connect(os.getenv("DATABASE_URL"))
         rows = await conn.fetch("SELECT partner_name, partner_handle, amount_usd, status FROM launch_contributions ORDER BY amount_usd DESC")
         total = sum(float(r["amount_usd"]) for r in rows if r["status"] != "cancelled")
-        lines = ["SLH Investors Report"]
+        lines = ["SLH Investors", ""]
         for r in rows:
-            s = r["status"]
-            icon = "OK" if s == "verified" else ("WAIT" if s == "pending" else "NO")
+            icon = "+" if r["status"] == "verified" else ("?" if r["status"] == "pending" else "-")
             handle = r["partner_handle"] or ""
-            name = r["partner_name"] or ""
-            lines.append(f"{icon} {name} {handle} usd{float(r['amount_usd']):.0f} {s}")
-        lines.append(f"Total: usd{total:.2f}")
+            lines.append(f"{icon} {r['partner_name']} {handle} ${float(r['amount_usd']):.0f} [{r['status']}]")
+        lines.append(f"Total: ${total:.2f}")
         await conn.close()
-        await msg.answer("\n".join(lines), parse_mode=None)
+        await msg.answer("\n".join(lines))
     except Exception as e:
-        await msg.answer(f"Error {e}", parse_mode=None)
-
-
-@dp.message(Command("chatid"))
-async def cmd_chatid(msg: Message) -> None:
-    cid = msg.chat.id
-    title = msg.chat.title or msg.chat.first_name or "private"
-    await msg.answer(f"ID {cid} {title}", parse_mode=None)
+        await msg.answer(f"Error: {e}")
 
 
 if __name__ == "__main__":
