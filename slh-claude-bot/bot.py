@@ -868,8 +868,9 @@ async def cmd_investors(msg: Message) -> None:
 
 @dp.message(Command("chatid"))
 async def cmd_chatid(msg: Message) -> None:
-    chat = msg.chat
-    await msg.answer(f"chat_id: {chat.id}\ntitle: {chat.title or chat.first_name}\ntype: {chat.type}")
+    cid = msg.chat.id
+    title = msg.chat.title or msg.chat.first_name or "private"
+    await msg.answer(f"ID {cid} {title}", parse_mode=None)
 
 
 if __name__ == "__main__":
