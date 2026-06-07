@@ -216,39 +216,6 @@ async def cmd_health(msg: Message) -> None:
         await msg.answer(f"שגיאה: `{_escape_md(type(e).__name__)}: {_escape_md(str(e))}`")
 
 
-@dp.message(Command("price"))
-async def cmd_price(msg: Message) -> None:
-    if not auth.is_authorized(msg.from_user.id):
-        await msg.answer(auth.unauthorized_reply_he(msg.from_user.id))
-        return
-async def cmd_price(msg: Message) -> None:
-    if not auth.is_authorized(msg.from_user.id):
-        await msg.answer(auth.unauthorized_reply_he(msg.from_user.id))
-        return
-    try:
-        p = await _http_get_json("/api/prices")
-        prices = p.get("prices") or p
-        if not isinstance(prices, dict) or not prices:
-            await msg.answer("אין נתוני מחיר כרגע.")
-            return
-        lines = ["*מחירים \\(₪\\):*"]
-        for token, value in prices.items():
-            # /api/prices returns {ils, usd} objects; fall back to scalar if not
-            if isinstance(value, dict):
-                ils = value.get("ils") or value.get("price") or value.get("value")
-            else:
-                ils = value
-            try:
-                fmt = f"{float(ils):,.2f}"
-            except (TypeError, ValueError):
-                fmt = str(ils)
-            lines.append(f"• *{_escape_md(token)}:* `{fmt}`")
-        await msg.answer("\n".join(lines))
-    except Exception as e:
-        log.exception("/price failed")
-        await msg.answer(f"שגיאה: `{_escape_md(str(e))}`")
-
-
 @dp.message(Command("devices"))
 async def cmd_devices(msg: Message) -> None:
     if not auth.is_authorized(msg.from_user.id):
@@ -795,6 +762,91 @@ async def cmd_investors(msg: Message) -> None:
         await msg.answer("\n".join(lines), parse_mode=None)
     except Exception as e:
         await msg.answer(f"Error {e}", parse_mode=None)
+
+
+@dp.message(Command("price"))
+async def cmd_price(msg: Message) -> None:
+    lines = ["SLH Token Prices", "", "SLH Token on BSC", "Contract: 0xACb0A09414CEA1C879c67bB7A877E4e19480f022", "DEX: PancakeSwap", "Network: BSC"]
+    await msg.answer("\n".join(lines), parse_mode=None)
+
+@dp.message(Command("menu"))
+async def cmd_menu(msg: Message) -> None:
+    lines = ["SLH Spark AI - Menu", "", "SYSTEM", "/status  ecosystem status", "/health  API+DB health", "/db      database stats", "/price   token prices", "", "INVESTORS", "/investors  investor list", "/approve @user  approve investor", "", "OPS", "/ps /bots /git /logs", "", "EDITOR", "/ls /cat /grep /find /append /replace", "", "AI", "/ai_mode /credits /clear", "", "INFO", "/guide /roadmap /wallet /referral /support /profile"]
+    await msg.answer("\n".join(lines), parse_mode=None)
+
+@dp.message(Command("guide"))
+async def cmd_guide(msg: Message) -> None:
+    lines = ["SLH Ecosystem Guide", "", "1. Join @SLH_Spark_AI_BOT", "2. Send /start", "3. Buy SLH on PancakeSwap", "4. Link wallet at slh-nft.com/my.html", "", "INVESTORS:", "Send BSC wallet + TX proof to @SLH_Spark_AI_BOT", "", "SUPPORT: /support", "WEBSITE: slh-nft.com"]
+    await msg.answer("\n".join(lines), parse_mode=None)
+
+@dp.message(Command("roadmap"))
+async def cmd_roadmap(msg: Message) -> None:
+    lines = ["SLH Roadmap", "", "DONE", "v Genesis Launch", "v BSC Token", "v PancakeSwap liquidity", "v Telegram bots", "v NFT infrastructure", "v Academy", "v Referral system", "", "IN PROGRESS", "> Investor verification", "> CRM unification", "> Revenue dashboard", "", "UPCOMING", "- IDO Round 2", "- Mobile app", "- Marketplace", "- Governance"]
+    await msg.answer("\n".join(lines), parse_mode=None)
+
+@dp.message(Command("wallet"))
+async def cmd_wallet(msg: Message) -> None:
+    lines = ["SLH Wallet", "", "Link your BSC wallet:", "1. Go to slh-nft.com/my.html", "2. Connect MetaMask or Trust Wallet", "3. Sign the verification message", "", "Contract: 0xACb0A09414CEA1C879c67bB7A877E4e19480f022", "Network: BSC"]
+    await msg.answer("\n".join(lines), parse_mode=None)
+
+@dp.message(Command("referral"))
+async def cmd_referral(msg: Message) -> None:
+    try:
+        import asyncpg as _pg
+        conn = await _pg.connect(os.getenv("DATABASE_URL"))
+        count = await conn.fetchval("SELECT COUNT(*) FROM referrals")
+        await conn.close()
+        lines = ["SLH Referral System", "", f"Total referrals: {count}", "", "Invite friends and earn SLH tokens!", "Contact @osifeu_prog for your referral link"]
+        await msg.answer("\n".join(lines), parse_mode=None)
+    except Exception as e:
+        await msg.answer("Referral system: contact @osifeu_prog", parse_mode=None)
+
+@dp.message(Command("profile"))
+async def cmd_profile(msg: Message) -> None:
+    u = msg.from_user
+    lines = ["Your Profile", "", f"Name: {u.first_name} {u.last_name or ''}", f"Username: @{u.username or 'none'}", f"ID: {u.id}", "", "Link wallet: /wallet", "Check status: /status"]
+    await msg.answer("\n".join(lines), parse_mode=None)
+
+@dp.message(Command("support"))
+async def cmd_support(msg: Message) -> None:
+    lines = ["SLH Support", "", "Admin: @osifeu_prog", "Support group: t.me/+Iy57lfQQ3vM5Yjlk", "", "Useful commands:", "/guide  - getting started", "/wallet - wallet setup", "/status - system status"]
+    await msg.answer("\n".join(lines), parse_mode=None)
+
+@dp.message(Command("approve"))
+async def cmd_approve(msg: Message) -> None:
+    if not auth.is_authorized(msg.from_user.id):
+        return
+    parts = msg.text.strip().split()
+    if len(parts) < 2:
+        await msg.answer("Usage: /approve @username", parse_mode=None)
+        return
+    handle = "@" + parts[1].lstrip("@")
+    try:
+        import asyncpg as _pg
+        conn = await _pg.connect(os.getenv("DATABASE_URL"))
+        r = await conn.execute("UPDATE launch_contributions SET status=\'verified\', verified_at=NOW() WHERE partner_handle=$1 AND status=\'pending\'", handle)
+        await conn.close()
+        await msg.answer(f"OK {handle} approved" if "UPDATE 1" in r else f"Not found: {handle}", parse_mode=None)
+    except Exception as e:
+        await msg.answer(f"Error {e}", parse_mode=None)
+
+@dp.message(Command("bcast"))
+async def cmd_bcast(msg: Message) -> None:
+    if not auth.is_authorized(msg.from_user.id):
+        return
+    text = msg.text.replace("/bcast", "", 1).strip()
+    if not text:
+        await msg.answer("Usage: /bcast <message>", parse_mode=None)
+        return
+    groups = [-1002981609404, -1001769799652, -1001637210555, -1001790547267, -1001713200118, -1001748319682, -1001511637666]
+    ok = fail = 0
+    for gid in groups:
+        try:
+            await msg.bot.send_message(gid, text)
+            ok += 1
+        except Exception:
+            fail += 1
+    await msg.answer(f"Broadcast: {ok} ok, {fail} fail", parse_mode=None)
 
 
 async def main() -> None:
