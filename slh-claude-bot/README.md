@@ -57,3 +57,5 @@ slh-claude-bot/
 ├── requirements.txt
 └── .env.example
 ```
+
+<!-- redeploy trigger 2026-09-14 14:53 -->
