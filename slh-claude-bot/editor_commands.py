@@ -543,7 +543,7 @@ def register(dp: Dispatcher, auth_module, _chunks_fn) -> None:
             if not auth_module.is_authorized(msg.from_user.id):
                 await msg.answer(auth_module.unauthorized_reply_he(msg.from_user.id))
                 return
-            return await handler(msg, *args, **kwargs)
+            return await handler(msg)
         return wrapper
 
     @dp.message(Command("cat"))
