@@ -25,14 +25,15 @@ import httpx
 log = logging.getLogger("slh-claude-bot.free-ai")
 
 # ── Config ──────────────────────────────────────────────────────────────────
-GROQ_API_KEY   = os.getenv("GROQ_API_KEY", "")
+logging.getLogger("httpx").setLevel(logging.WARNING)
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 RAILWAY_BASE   = os.getenv("SLH_API_BASE", "https://slh-api-production.up.railway.app")
 TIMEOUT        = float(os.getenv("SLH_AI_TIMEOUT", "30"))
 
-GROQ_MODEL_PRIMARY  = "llama-3.3-70b-versatile"
-GROQ_MODEL_FALLBACK = "llama-3.1-8b-instant"
-GEMINI_MODEL        = "gemini-2.0-flash"
+GROQ_MODEL_PRIMARY = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+GROQ_MODEL_FALLBACK = os.getenv("GROQ_MODEL_FALLBACK", "openai/gpt-oss-20b")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 SYSTEM_PROMPT = (
     "אתה SLH Spark AI — עוזר אישי חכם של אוסיף ומשתמשי SLH Spark.\n"
