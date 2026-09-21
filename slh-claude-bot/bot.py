@@ -221,10 +221,6 @@ async def cmd_devices(msg: Message) -> None:
     if not auth.is_authorized(msg.from_user.id):
         await msg.answer(auth.unauthorized_reply_he(msg.from_user.id))
         return
-async def cmd_devices(msg: Message) -> None:
-    if not auth.is_authorized(msg.from_user.id):
-        await msg.answer(auth.unauthorized_reply_he(msg.from_user.id))
-        return
     if not ADMIN_KEY:
         await msg.answer("חסר `ADMIN_API_KEY` ב-.env של הבוט.")
         return
@@ -477,10 +473,6 @@ async def cmd_ps(msg: Message) -> None:
     if not auth.is_authorized(msg.from_user.id):
         await msg.answer(auth.unauthorized_reply_he(msg.from_user.id))
         return
-async def cmd_ps(msg: Message) -> None:
-    if not auth.is_authorized(msg.from_user.id):
-        await msg.answer(auth.unauthorized_reply_he(msg.from_user.id))
-        return
     if not _has_binary("docker"):
         # Fallback: list services from docker-compose.yml so the user sees
         # the configured fleet even when the bot has no docker socket.
@@ -520,10 +512,6 @@ async def cmd_ps(msg: Message) -> None:
 
 
 @dp.message(Command("logs"))
-async def cmd_logs(msg: Message) -> None:
-    if not auth.is_authorized(msg.from_user.id):
-        await msg.answer(auth.unauthorized_reply_he(msg.from_user.id))
-        return
 async def cmd_logs(msg: Message) -> None:
     if not auth.is_authorized(msg.from_user.id):
         await msg.answer(auth.unauthorized_reply_he(msg.from_user.id))
@@ -571,10 +559,6 @@ async def cmd_git(msg: Message) -> None:
 
 
 @dp.message(Command("bots"))
-async def cmd_bots(msg: Message) -> None:
-    if not auth.is_authorized(msg.from_user.id):
-        await msg.answer(auth.unauthorized_reply_he(msg.from_user.id))
-        return
 async def cmd_bots(msg: Message) -> None:
     if not auth.is_authorized(msg.from_user.id):
         await msg.answer(auth.unauthorized_reply_he(msg.from_user.id))
